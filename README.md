@@ -100,33 +100,29 @@ npm test
 
 ## 5. Nostr（nsite）に上げる
 
-1. nsyte を入れる
-
 ```bash
-curl -fsSL https://nsyte.run/get/install.sh | bash
+npm install
 ```
-
-2. （はじめてだけ）署名アプリとつなぐ。秘密鍵は打ち込まない
-
-```bash
-nsyte bunker connect 'bunker://…'
-```
-
-3. 上げる
 
 ```bash
 npm run deploy
 ```
 
-開く場所は `https://<署名した人の npub>.nsite.lol/`。スクリーン・`/admin.html`・`/pay.html` が開けます。
-置き場所（リレー・Blossom サーバー）は `.nsite/config.json`。
+1. `nostrconnect://…` と QR（`.nsite/nostrconnect.svg`）が出るので、署名アプリ（Clave・Amber・nsec.app など）で読む。秘密鍵は打ち込まない
+2. 署名の確認が 2 回出るので承認する（ファイルを Blossom に置く許可 kind 24242、サイトの一覧 kind 35128）
+3. 出た URL を開く
+
+NIP-5A の**名前つきサイト**（kind 35128、`d=satsmap`）として上げるので、同じ npub のいちばん上のサイト（kind 15128）は上書きしません。
+開く場所は `https://<公開鍵の 36 進数 50 桁>satsmap.nsite.lol/`（最後に上げたときの URL は `.nsite/last-deploy.json`）。
+スクリーン・`/admin.html`・`/pay.html` が開けます。置き場所（リレー・Blossom サーバー）は `.nsite/config.json`。
+bunker:// でつなぐときは `SATSMAP_BUNKER='bunker://…' npm run deploy`。
 
 支払いページの URL をポスターなどに刷るときは、先に `js/config.js` の `blinkUsername` に Blink のユーザー名を書いてから上げてください
 （書かないときは、管理画面で入れた名前が QR の URL に `?u=` で付きます）。イベント名も `js/config.js` の `eventName` に書けます。
 
 ## 6. 会場で
 
-1. スクリーンを映すパソコンで、Chrome で `https://<npub>.nsite.lol/` を開く
+1. スクリーンを映すパソコンで、Chrome で上げたサイトの URL を開く
 2. 同じブラウザで `admin.html` を開く（スクリーンで `A` を押しても開く）→ Blink のユーザー名と API キーを入れて **接続テスト**。✓ が 3 つ並べば OK
 3. 自分のスマホでスクリーンの QR を読み、**21 sats を投げて、スクリーンに出るまで**を確かめる（リハーサル）
 4. 管理画面の「テストの記録を消す」、必要なら「最初からやり直す」
@@ -191,7 +187,7 @@ js/app.js         スクリーンの動き
 js/pay.js / js/admin.js
 js/countries.js   国の一覧（scripts/build-vendor.mjs が作る）
 vendor/           amCharts・QR コード・Font Awesome・nostr-tools（scripts/build-vendor.mjs が node_modules から作る）
-scripts/          serve.mjs（手元のサーバー）・e2e.mjs（自動の確認）・test-relay.mjs（確認用の Nostr リレー）・build-site.mjs・deploy-nsite.sh・build-vendor.mjs
+scripts/          serve.mjs（手元のサーバー）・e2e.mjs（自動の確認）・test-relay.mjs（確認用の Nostr リレー）・build-site.mjs・deploy-nostr.mjs（nsite に上げる）・build-vendor.mjs
 .nsite/config.json  nsite の置き場所
 ```
 

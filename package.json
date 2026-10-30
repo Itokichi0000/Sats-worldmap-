@@ -8,7 +8,7 @@
     "vendor": "node scripts/build-vendor.mjs",
     "serve": "node scripts/serve.mjs",
     "test": "node scripts/e2e.mjs",
-    "deploy": "bash scripts/deploy-nsite.sh"
+    "deploy": "node scripts/deploy-nostr.mjs"
   },
   "devDependencies": {
     "@amcharts/amcharts5": "^5.21.5",
