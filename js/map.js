@@ -1,250 +1,151 @@
 /**
- * map.js
- * -----------------------------------------------------------------------
- * amCharts 5 (free) map setup for the Sats World Map mockup.
+ * map.js — amCharts 5（無料版）の世界地図・日本地図
  *
- * Exposes a small `SatsMap` namespace used by app.js:
- *   SatsMap.init()                                 -> builds both charts
- *   SatsMap.addAmount(regionType, regionCode, amt)  -> updates heat color
- *   SatsMap.pulse(regionType, regionCode)           -> flash animation
- *   SatsMap.showTab(tabKey)                         -> "world" | "japan"
+ *   SatsMap.init()
+ *   SatsMap.setTotals(regionType, { code: sats })  塗りの濃さを、合計から作り直す
+ *   SatsMap.pulse(regionType, code)               点滅
+ *   SatsMap.zoomTo(regionType, code)              その地域へ寄る（Promise）
+ *   SatsMap.home(regionType)                      元の大きさへ
+ *   SatsMap.screenPoint(regionType, code)         その地域の真ん中の、画面の上の位置 { x, y }
+ *   SatsMap.resize()
  *
- * regionType: "country" (world map, ISO-2 codes e.g. "US")
- *           | "jp_prefecture" (japan map, ISO 3166-2:JP e.g. "JP-13")
- * -----------------------------------------------------------------------
+ * regionType: "country"（世界地図・ISO-2 "US"）| "jp_prefecture"（日本地図・"JP-13"）
  */
-
 const SatsMap = (() => {
+  const maps = {}; // regionType -> { root, chart, series, el }
 
-  let worldRoot, japanRoot;
-  let worldSeries, japanSeries;
+  function build(divId, geo, opts) {
+    const root = am5.Root.new(divId);
+    root.setThemes([am5themes_Animated.new(root), am5themes_Dark.new(root)]);
 
-  // running totals per region code, used to drive heat color
-  const totals = {
-    country: {},
-    jp_prefecture: {}
-  };
-
-  function buildWorldMap() {
-    worldRoot = am5.Root.new("worldMapDiv");
-    worldRoot.setThemes([am5themes_Animated.new(worldRoot), am5themes_Dark.new(worldRoot)]);
-
-    const chart = worldRoot.container.children.push(
-      am5map.MapChart.new(worldRoot, {
-        panX: "rotateX",
+    const chart = root.container.children.push(
+      am5map.MapChart.new(root, {
+        panX: opts.panX,
         panY: "translateY",
-        projection: am5map.geoNaturalEarth1(),
+        projection: opts.projection,
         homeZoomLevel: 1,
-        homeRotationX: 0,
         wheelY: "zoom",
-        maxZoomLevel: 8
-      })
+        maxZoomLevel: opts.maxZoom,
+      }),
     );
+    chart.set("background", am5.Rectangle.new(root, { fill: am5.color(0x060a13), fillOpacity: 1 }));
 
-    chart.set("background", am5.Rectangle.new(worldRoot, {
-      fill: am5.color(0x060a13),
-      fillOpacity: 1
-    }));
-
-    worldSeries = chart.series.push(
-      am5map.MapPolygonSeries.new(worldRoot, {
-        geoJSON: am5geodata_worldLow,
-        valueField: "value",
-        calculateAggregates: true
-      })
+    const series = chart.series.push(
+      am5map.MapPolygonSeries.new(root, { geoJSON: geo, valueField: "value", calculateAggregates: true }),
     );
-
-    worldSeries.mapPolygons.template.setAll({
-      tooltipText: "{name}: {valueLabel}",
+    series.mapPolygons.template.setAll({
+      tooltipText: "{name}",
       stroke: am5.color(0x22314d),
       strokeWidth: 0.6,
       fill: am5.color(0x172239),
-      interactive: true
+      interactive: true,
     });
-
-    worldSeries.mapPolygons.template.states.create("hover", {
-      fill: am5.color(0xffb84d)
-    });
-
-    worldSeries.set("heatRules", [{
-      target: worldSeries.mapPolygons.template,
+    series.mapPolygons.template.states.create("hover", { fill: am5.color(0xffd166) });
+    series.set("heatRules", [{
+      target: series.mapPolygons.template,
       dataField: "value",
-      min: am5.color(0x1c2b45),
+      min: am5.color(0x2b3f66),
       max: am5.color(0xffb84d),
-      key: "fill"
+      key: "fill",
     }]);
-
-    // add a custom adapter to build the tooltip label with "sats"
-    worldSeries.mapPolygons.template.adapters.add("tooltipText", (text, target) => {
+    series.mapPolygons.template.adapters.add("tooltipText", (text, target) => {
       const di = target.dataItem;
       if (!di) return text;
       const v = di.get("value") || 0;
-      return v > 0 ? `{name}\n${formatSats(v)} sats` : "{name}\n受信なし";
+      return v > 0 ? `{name}\n${v.toLocaleString("en-US")} sats` : "{name}\nまだ 0 sats";
     });
+    chart.set("zoomControl", am5map.ZoomControl.new(root, {}));
+    // 形が決まってから日本に合わせる（1 回だけ。毎回だと、色を変えるたびに寄った地図が戻る）
+    if (opts.fitOnLoad) series.events.once("datavalidated", () => chart.goHome(0));
 
-    chart.set("zoomControl", am5map.ZoomControl.new(worldRoot, {}));
-
-    // seed with all countries at value 0 so the whole map renders in base color
-    worldSeries.data.setAll([{ id: "__seed", value: 0 }]);
-
-    return chart;
-  }
-
-  function buildJapanMap() {
-    japanRoot = am5.Root.new("japanMapDiv");
-    japanRoot.setThemes([am5themes_Animated.new(japanRoot), am5themes_Dark.new(japanRoot)]);
-
-    const chart = japanRoot.container.children.push(
-      am5map.MapChart.new(japanRoot, {
-        panX: "translateX",
-        panY: "translateY",
-        projection: am5map.geoMercator(),
-        homeZoomLevel: 1,
-        wheelY: "zoom",
-        maxZoomLevel: 10
-      })
-    );
-
-    chart.set("background", am5.Rectangle.new(japanRoot, {
-      fill: am5.color(0x060a13),
-      fillOpacity: 1
-    }));
-
-    japanSeries = chart.series.push(
-      am5map.MapPolygonSeries.new(japanRoot, {
-        geoJSON: am5geodata_japanLow,
-        valueField: "value",
-        calculateAggregates: true
-      })
-    );
-
-    japanSeries.mapPolygons.template.setAll({
-      tooltipText: "{name}: {valueLabel}",
-      stroke: am5.color(0x22314d),
-      strokeWidth: 0.6,
-      fill: am5.color(0x172239),
-      interactive: true
-    });
-
-    japanSeries.mapPolygons.template.states.create("hover", {
-      fill: am5.color(0xffb84d)
-    });
-
-    japanSeries.set("heatRules", [{
-      target: japanSeries.mapPolygons.template,
-      dataField: "value",
-      min: am5.color(0x1c2b45),
-      max: am5.color(0xffb84d),
-      key: "fill"
-    }]);
-
-    japanSeries.mapPolygons.template.adapters.add("tooltipText", (text, target) => {
-      const di = target.dataItem;
-      if (!di) return text;
-      const v = di.get("value") || 0;
-      return v > 0 ? `{name}\n${formatSats(v)} sats` : "{name}\n受信なし";
-    });
-
-    chart.set("zoomControl", am5map.ZoomControl.new(japanRoot, {}));
-
-    // Fit the map to Japan's own bounds once the series geometry has been
-    // validated. Calling zoomToGeoPoint() synchronously right after chart
-    // creation runs before amCharts has computed the projection/geometry,
-    // which left this map blank — waiting for "datavalidated" fixes it.
-    japanSeries.events.on("datavalidated", () => {
-      chart.goHome(0);
-    });
-
-    japanSeries.data.setAll([{ id: "__seed", value: 0 }]);
-
-    return chart;
-  }
-
-  function formatSats(v) {
-    return v.toLocaleString("en-US");
-  }
-
-  function getSeries(regionType) {
-    return regionType === "country" ? worldSeries : japanSeries;
-  }
-
-  function addAmount(regionType, regionCode, amount) {
-    const store = totals[regionType];
-    store[regionCode] = (store[regionCode] || 0) + amount;
-
-    const series = getSeries(regionType);
-    if (!series) return;
-
-    // Rebuild the full data set for the series from current totals.
-    // IMPORTANT: always keep a fixed 0-value baseline row ("__seed") in
-    // the set, even once real regions exist. amCharts5's heat rule scales
-    // colors between the *current min and max values in the data*. If we
-    // only ever pass the real regions, whichever region has the smallest
-    // total becomes the new "min" and gets mapped to the darkest heat
-    // color (almost indistinguishable from the unset base fill) even
-    // though it actually received a real payment. Keeping 0 as a
-    // permanent floor guarantees every region that received sats renders
-    // brighter than the true "no data" regions.
-    const rows = [{ id: "__seed", value: 0 }];
-    Object.keys(store).forEach(code => rows.push({ id: code, value: store[code] }));
-    series.data.setAll(rows);
-  }
-
-  function pulse(regionType, regionCode) {
-    const series = getSeries(regionType);
-    if (!series) return;
-
-    series.mapPolygons.each((polygon) => {
-      const di = polygon.dataItem;
-      if (di && di.get("id") === regionCode) {
-        polygon.states.create("pulseState", {
-          scale: 1,
-          fillOpacity: 1
-        });
-
-        // simple pulse: animate a temporary bright fill then fade back to heat color
-        polygon.animate({
-          key: "fillOpacity",
-          from: 1,
-          to: 0.55,
-          duration: 500,
-          loops: 3,
-          easing: am5.ease.inOut(am5.ease.cubic)
-        });
-
-        // small "bump" scale animation for extra visibility
-        const originalScale = polygon.get("scale") || 1;
-        polygon.animate({
-          key: "scale",
-          from: originalScale,
-          to: originalScale * 1.0,
-          duration: 10
-        });
-      }
-    });
+    // 0 の行をいつも入れておく（いちばん少ない地域も、塗っていない地域より明るく出るように）
+    series.data.setAll([{ id: "__seed", value: 0 }]);
+    return { root, chart, series, el: document.getElementById(divId) };
   }
 
   function init() {
-    buildWorldMap();
-    buildJapanMap();
-  }
-
-  /**
-   * Both maps are now always mounted side by side (never display:none),
-   * so amCharts always initializes them with a real, non-zero size.
-   * When the user "focuses" one map, the OTHER map's container is hidden
-   * via CSS grid (display:none on the card), which can leave amCharts5
-   * with a stale layout. Calling appear()/resize-safe invalidation on
-   * un-hide fixes that — see `resize()` below, called from app.js after
-   * toggling focus classes.
-   */
-  function resize() {
-    [worldRoot, japanRoot].forEach((root) => {
-      if (root && typeof root.resize === "function") {
-        try { root.resize(); } catch (e) { /* no-op */ }
-      }
+    maps.country = build("worldMapDiv", am5geodata_worldLow, {
+      panX: "rotateX", projection: am5map.geoNaturalEarth1(), maxZoom: 16,
+    });
+    maps.jp_prefecture = build("japanMapDiv", am5geodata_japanLow, {
+      panX: "translateX", projection: am5map.geoMercator(), maxZoom: 10, fitOnLoad: true,
     });
   }
 
-  return { init, addAmount, pulse, resize };
+  // data.setAll() だと地図が組み直されて、寄った位置が元に戻る。値だけを書き換える
+  function setTotals(regionType, totals) {
+    const m = maps[regionType];
+    if (!m) return;
+    const fresh = [];
+    Object.keys(totals).forEach((code) => {
+      const v = totals[code] > 0 ? totals[code] : undefined;
+      const di = m.series.getDataItemById(code);
+      if (di) {
+        if (di.get("value") !== v) di.set("value", v);
+      } else if (v) {
+        fresh.push({ id: code, value: v });
+      }
+    });
+    // 前は数えていて、いまはない地域（やり直したとき）
+    m.series.dataItems.forEach((di) => {
+      const id = di.get("id");
+      if (id !== "__seed" && di.get("value") != null && !(totals[id] > 0)) di.set("value", undefined);
+    });
+    if (fresh.length) m.series.data.pushAll(fresh);
+    m.series.markDirtyValues();
+  }
+
+  function polygonOf(regionType, code) {
+    const m = maps[regionType];
+    if (!m) return null;
+    const di = m.series.getDataItemById(code);
+    return di ? di.get("mapPolygon") : null;
+  }
+
+  function pulse(regionType, code) {
+    const p = polygonOf(regionType, code);
+    if (!p) return;
+    p.animate({ key: "fillOpacity", from: 1, to: 0.35, duration: 380, loops: 4, easing: am5.ease.inOut(am5.ease.cubic) });
+  }
+
+  const ZOOM = { country: 3.2, jp_prefecture: 2.6 };
+  function zoomTo(regionType, code) {
+    const m = maps[regionType];
+    const p = polygonOf(regionType, code);
+    if (!m || !p) return Promise.resolve();
+    // 小さな国・県は寄りすぎない、大きな国（ロシア・アメリカ）は寄らない
+    const geo = p.visualCentroid();
+    const level = regionType === "country" && ["RU", "CA", "US", "CN", "BR", "AU", "AQ", "GL"].includes(code) ? 1.6 : ZOOM[regionType];
+    m.chart.zoomToGeoPoint(geo, level, true, 900);
+    return new Promise((r) => setTimeout(r, 950));
+  }
+
+  function home(regionType) {
+    const m = maps[regionType];
+    if (m) m.chart.goHome(900);
+  }
+
+  function screenPoint(regionType, code) {
+    const m = maps[regionType];
+    const p = polygonOf(regionType, code);
+    if (!m || !p) return null;
+    const local = m.chart.convert(p.visualCentroid());
+    const g = m.chart.seriesContainer.toGlobal(local);
+    const rect = m.el.getBoundingClientRect();
+    const x = rect.left + g.x;
+    const y = rect.top + g.y;
+    // 地図の外（裏側・切れたところ）なら、地図の真ん中
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, outside: true };
+    }
+    return { x, y };
+  }
+
+  function resize() {
+    Object.values(maps).forEach((m) => {
+      try { m.root.resize(); } catch (e) { /* no-op */ }
+    });
+  }
+
+  return { init, setTotals, pulse, zoomTo, home, screenPoint, resize };
 })();

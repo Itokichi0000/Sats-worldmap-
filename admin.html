@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>管理 — Sats World Map</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+<link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+<main id="admin">
+  <header>
+    <h1><i class="fa-solid fa-sliders"></i> Sats World Map 管理</h1>
+    <p>この画面は、スクリーン（index.html）を映しているパソコンの<strong>同じブラウザ</strong>で開きます。設定はこのブラウザの中にだけ残ります。</p>
+    <div class="screen-state" id="screen-state">スクリーンを探しています…</div>
+    <a class="btn" href="index.html" target="satsmap-screen"><i class="fa-solid fa-display"></i> スクリーンを開く</a>
+  </header>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-bolt"></i> Blink</h2>
+    <label>受け取る Blink のユーザー名
+      <input id="username" placeholder="例：satsmap（Lightning アドレスは satsmap@blink.sv）" autocomplete="off">
+    </label>
+    <p class="note" id="username-note"></p>
+    <label><span>API キー（<b>Read だけ</b>の権限で作る）</span>
+      <input id="apikey" type="password" placeholder="blink_…" autocomplete="off">
+    </label>
+    <p class="note">
+      Blink のダッシュボード（dashboard.blink.sv）→ API Keys で、権限を <b>Read</b> だけにして作ります（Receive・Write は要りません）。
+      キーはこのブラウザにだけ置き、サイトのファイルには入りません。スクリーンが受け取った支払いを読むのに使います。
+    </p>
+    <div class="row">
+      <button class="btn primary" id="save-blink"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+      <button class="btn" id="test-blink"><i class="fa-solid fa-plug"></i> 接続テスト</button>
+      <button class="btn danger ghost" id="forget-key"><i class="fa-solid fa-key"></i> キーを消す</button>
+    </div>
+    <pre class="log" id="blink-log" hidden></pre>
+    <div class="paylink">
+      <div id="pay-qr" class="qr"></div>
+      <div>
+        <b>支払いページ</b>
+        <a id="pay-link" target="_blank" rel="noopener"></a>
+        <p class="note">本番の前に、自分のスマホで 21 sats を投げて、スクリーンに出るまでを確かめてください。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-flag-checkered"></i> ラウンド</h2>
+    <div class="grid2">
+      <label>1 ラウンドの長さ（分）<input id="roundMinutes" type="number" min="1" max="180"></label>
+      <label>ゴール（sats）<input id="roundGoal" type="number" min="1"></label>
+    </div>
+    <div class="round-state" id="round-state"></div>
+    <div class="row">
+      <button class="btn primary" id="round-start"><i class="fa-solid fa-play"></i> ラウンドを始める</button>
+      <button class="btn" id="round-end"><i class="fa-solid fa-stop"></i> いま終える（結果を出す）</button>
+    </div>
+    <p class="note">スクリーンでスペースキーを押しても、始める・終えるができます。</p>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-wand-magic-sparkles"></i> 演出</h2>
+    <div class="grid2">
+      <label>花火にする金額（sats 以上）<input id="bigAt" type="number" min="1"></label>
+      <label>クジラにする金額（sats 以上）<input id="whaleAt" type="number" min="1"></label>
+    </div>
+    <label class="check"><input type="checkbox" id="sound"> 効果音を鳴らす</label>
+    <label class="check"><input type="checkbox" id="zoom"> 届いたら、その地域に寄る</label>
+    <label class="check"><input type="checkbox" id="rotate"> 世界 ⇄ 日本 を順に大きく出す</label>
+    <label>順に出す間隔（秒）<input id="rotateSec" type="number" min="5" max="600"></label>
+    <label class="check"><input type="checkbox" id="countAll"> 支払いページを通らない入金（Lightning アドレスへの直接の送金など）も数える</label>
+    <p class="note">↑ オンにすると、この Blink のアカウントに入ったお金はすべてスクリーンに出ます。イベント専用のアカウントのときだけオンにしてください。</p>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-shield-halved"></i> メッセージ</h2>
+    <label class="check"><input type="checkbox" id="showMessages"> ひとことをスクリーンに出す</label>
+    <label>出さない言葉（1 行に 1 つ。含むメッセージは出しません）
+      <textarea id="ngWords" rows="4" placeholder="例：宣伝"></textarea>
+    </label>
+    <p class="note">URL・インボイス・npub は自動で 🔗 に置き換えます。よくない言葉もいくつかは最初から出しません。</p>
+    <h3>最近の 1 投（隠すと、名前とひとことがスクリーンから消えます。sats は数えたまま）</h3>
+    <div id="entries" class="entries"></div>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-flask"></i> テスト</h2>
+    <p class="note">お金を動かさずに、スクリーンの演出だけを確かめます（「テスト」の印が付きます）。</p>
+    <div class="grid2">
+      <label>地域
+        <select id="test-region"></select>
+      </label>
+      <label>金額（sats）<input id="test-sats" type="number" min="1" value="2100"></label>
+      <label>ニックネーム<input id="test-nick" maxlength="20" value="テスト"></label>
+      <label>ひとこと<input id="test-msg" maxlength="60" value="テストです ⚡"></label>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="send-test"><i class="fa-solid fa-paper-plane"></i> テストの 1 投</button>
+      <button class="btn" id="clear-tests"><i class="fa-solid fa-broom"></i> テストの記録を消す</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-calendar-day"></i> イベント</h2>
+    <div class="row">
+      <button class="btn" id="export"><i class="fa-solid fa-file-csv"></i> 記録を CSV で保存</button>
+      <button class="btn danger" id="reset"><i class="fa-solid fa-rotate-left"></i> 最初からやり直す</button>
+    </div>
+    <p class="note">「最初からやり直す」は、集計とラウンドを 0 に戻し、いまより前の入金を数えなくなります（Blink のお金はそのまま）。</p>
+  </section>
+</main>
+
+<script src="vendor/qrcode/qrcode.js"></script>
+<script src="js/config.js"></script>
+<script src="js/countries.js"></script>
+<script src="js/common.js"></script>
+<script src="js/store.js"></script>
+<script src="js/blink.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "relays": ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://yabu.me", "wss://r.kojira.io"],
+  "servers": ["https://blossom.primal.net", "https://blossom.band", "https://cdn.satellite.earth"],
+  "fallback": "/index.html",
+  "publishProfile": false,
+  "publishRelayList": false,
+  "publishServerList": false,
+  "publishAppHandler": false
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>⚡ Sats World Map に投げる</title>
+<meta name="theme-color" content="#070b14">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="css/pay.css">
+</head>
+<body>
+<main id="pay">
+
+  <header class="pay-head">
+    <div class="logo-badge"><i class="fa-solid fa-bolt"></i></div>
+    <div>
+      <h1>Sats World Map</h1>
+      <p>スクリーンの地図に ⚡ を投げよう</p>
+    </div>
+  </header>
+
+  <form id="form" novalidate>
+    <section class="step">
+      <h2><span class="num">1</span> どこを灯す？</h2>
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn active" data-tab="jp" role="tab" aria-selected="true">🗾 都道府県</button>
+        <button type="button" class="seg-btn" data-tab="world" role="tab" aria-selected="false">🌍 世界の国</button>
+      </div>
+      <div id="tab-jp" class="tab">
+        <div class="pref-grid" id="pref-grid"></div>
+      </div>
+      <div id="tab-world" class="tab" hidden>
+        <div class="quick" id="quick-countries"></div>
+        <input type="search" id="country-search" placeholder="国の名前でさがす（例：アメリカ, El Salvador）" autocomplete="off">
+        <div class="country-list" id="country-list"></div>
+      </div>
+      <div class="picked" id="picked">まだ選んでいません</div>
+    </section>
+
+    <section class="step">
+      <h2><span class="num">2</span> いくら投げる？</h2>
+      <div class="amounts" id="amounts"></div>
+      <label class="custom">
+        <span>そのほかの金額</span>
+        <input type="number" id="custom-amount" inputmode="numeric" min="1" step="1" placeholder="例：777">
+        <span>sats</span>
+      </label>
+      <p class="hint" id="amount-hint"></p>
+    </section>
+
+    <section class="step">
+      <h2><span class="num">3</span> 名前とひとこと <small>（どちらもなくても OK）</small></h2>
+      <label class="field">
+        <span>ニックネーム</span>
+        <input type="text" id="nick" maxlength="20" placeholder="例：satoshi" autocomplete="nickname">
+      </label>
+      <label class="field">
+        <span>ひとこと <em id="msg-count">0 / 60</em></span>
+        <input type="text" id="msg" maxlength="60" placeholder="例：はじめての Lightning！">
+      </label>
+      <p class="hint">会場のスクリーンに出ます。ふさわしくない言葉は表示されません。</p>
+    </section>
+
+    <button type="submit" class="go" id="go"><i class="fa-solid fa-bolt"></i> <span id="go-label">投げる</span></button>
+    <p class="error" id="form-error" role="alert"></p>
+  </form>
+
+  <section id="invoice" hidden>
+    <h2 id="inv-title">⚡ 2,100 sats → 🗼 東京都</h2>
+    <a class="go wallet" id="open-wallet" href="#"><i class="fa-solid fa-wallet"></i> ウォレットで払う</a>
+    <div class="inv-qr" id="inv-qr"></div>
+    <p class="hint">ウォレットが開かないときは、QR をほかの端末で読むか、下のボタンでコピーして貼り付けてください。</p>
+    <button type="button" class="ghost" id="copy-inv"><i class="fa-regular fa-copy"></i> インボイスをコピー</button>
+    <div class="waiting" id="waiting"><span class="dot"></span> 支払いを待っています… <span id="expires"></span></div>
+    <button type="button" class="ghost small" id="cancel">やめる・選び直す</button>
+  </section>
+
+  <section id="done" hidden>
+    <div class="done-burst">⚡</div>
+    <h2>届きました！</h2>
+    <p id="done-text">スクリーンを見てください 👀</p>
+    <button type="button" class="go" id="again"><i class="fa-solid fa-rotate-right"></i> もう一回投げる</button>
+  </section>
+
+  <footer class="pay-foot">
+    Lightning（ビットコイン）で支払います。受け取りは <span id="recipient"></span>（Blink）。<br>
+    投げた sats は返金できません。景品・賞品はありません。
+  </footer>
+</main>
+
+<script src="vendor/qrcode/qrcode.js"></script>
+<script src="js/config.js"></script>
+<script src="js/countries.js"></script>
+<script src="js/common.js"></script>
+<script src="js/blink.js"></script>
+<script src="js/pay.js"></script>
+</body>
+</html>

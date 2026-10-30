@@ -3,152 +3,159 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sats World Map — ライブ寄付マップ (モックアップ)</title>
-
-<!-- Google Fonts -->
+<title>Sats World Map — ライトニングで地図を灯そう</title>
+<meta name="theme-color" content="#070b14">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-
-<!-- Font Awesome -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
-
-<!-- amCharts 5 (free) -->
-<script src="https://cdn.amcharts.com/lib/5/index.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/map.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/geodata/worldLow.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/geodata/japanLow.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/themes/Dark.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
-
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
 <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="screen">
 
 <div id="app">
 
-  <!-- ===================== HEADER ===================== -->
   <header id="site-header">
     <div class="header-left">
       <div class="logo-badge"><i class="fa-solid fa-bolt"></i></div>
       <div class="header-titles">
         <h1>Sats World Map</h1>
-        <p>ライトニング決済でつながる世界地図 <span class="mock-tag">MOCKUP / DUMMY DATA</span></p>
+        <p><span id="event-name"></span><span class="status-chip" id="status-chip">…</span></p>
       </div>
     </div>
     <div class="header-right">
+      <div class="stat-pill accent">
+        <span class="stat-label">累計</span>
+        <span class="stat-value"><span id="stat-total-sats">0</span><small> sats</small></span>
+      </div>
       <div class="stat-pill">
-        <span class="stat-label">総送金件数</span>
+        <span class="stat-label">投げた回数</span>
         <span class="stat-value" id="stat-total-count">0</span>
       </div>
-      <div class="stat-pill accent">
-        <span class="stat-label">総sats</span>
-        <span class="stat-value" id="stat-total-sats">0</span>
-        <span class="stat-unit">sats</span>
+      <div class="stat-pill">
+        <span class="stat-label">都道府県 制覇</span>
+        <span class="stat-value"><span id="stat-prefs">0</span><small> / 47</small></span>
       </div>
       <div class="stat-pill">
-        <span class="stat-label">対応地域数</span>
-        <span class="stat-value" id="stat-total-regions">0</span>
+        <span class="stat-label">国・地域</span>
+        <span class="stat-value" id="stat-countries">0</span>
       </div>
     </div>
   </header>
 
-  <!-- ===================== MAIN LAYOUT ===================== -->
+  <!-- 日本 vs 世界 の綱引き -->
+  <div id="tug" aria-label="日本と世界の綱引き">
+    <div class="tug-side jp"><span class="tug-label">🗾 日本チーム</span><span class="tug-val" id="tug-jp">0</span></div>
+    <div class="tug-bar">
+      <div class="tug-fill" id="tug-fill"></div>
+      <div class="tug-knot" id="tug-knot">⚡</div>
+    </div>
+    <div class="tug-side world"><span class="tug-val" id="tug-world">0</span><span class="tug-label">世界チーム 🌍</span></div>
+  </div>
+
   <main id="main-layout">
 
-    <!-- -------- MAP PANEL (world + japan side by side) -------- -->
     <section id="map-panel">
-      <div class="panel-toolbar">
-        <div class="legend" id="map-legend">
-          <span class="legend-label">送金額</span>
-          <div class="legend-gradient"></div>
-          <span class="legend-min">少</span>
-          <span class="legend-max">多</span>
-        </div>
-        <button class="restore-btn" id="restore-both-btn" style="display:none;">
-          <i class="fa-solid fa-table-columns"></i> 両方表示に戻す
-        </button>
-      </div>
-
       <div class="map-grid" id="map-grid">
-
-        <div class="map-card" id="card-world" data-map="world">
+        <div class="map-card" id="card-world">
           <div class="map-card-header">
-            <div class="map-card-title"><i class="fa-solid fa-earth-asia"></i> 世界地図</div>
-            <button class="focus-btn" data-focus-target="world" title="この地図を全体表示">
-              <i class="fa-solid fa-expand"></i>
-            </button>
+            <div class="map-card-title"><i class="fa-solid fa-earth-asia"></i> 世界</div>
+            <button class="focus-btn" data-focus-target="world" title="この地図を大きく"><i class="fa-solid fa-expand"></i></button>
           </div>
           <div class="map-stage">
             <div id="worldMapDiv" class="map-canvas"></div>
             <div class="pulse-layer" id="pulse-layer-world"></div>
           </div>
         </div>
-
-        <div class="map-card" id="card-japan" data-map="japan">
+        <div class="map-card" id="card-japan">
           <div class="map-card-header">
-            <div class="map-card-title"><i class="fa-solid fa-torii-gate"></i> 日本 (都道府県)</div>
-            <button class="focus-btn" data-focus-target="japan" title="この地図を全体表示">
-              <i class="fa-solid fa-expand"></i>
-            </button>
+            <div class="map-card-title"><i class="fa-solid fa-torii-gate"></i> 日本（都道府県）</div>
+            <button class="focus-btn" data-focus-target="japan" title="この地図を大きく"><i class="fa-solid fa-expand"></i></button>
           </div>
           <div class="map-stage">
             <div id="japanMapDiv" class="map-canvas"></div>
             <div class="pulse-layer" id="pulse-layer-japan"></div>
           </div>
         </div>
-
       </div>
+      <button class="restore-btn" id="restore-both-btn" hidden><i class="fa-solid fa-table-columns"></i> 両方を出す</button>
+      <div id="ticker" aria-live="polite"><i class="fa-solid fa-bullhorn"></i> <span id="ticker-text"></span></div>
+      <div id="combo" hidden><span class="combo-fire">🔥</span> COMBO <b id="combo-n">×3</b></div>
     </section>
 
-    <!-- -------- SIDEBAR -------- -->
     <aside id="sidebar">
 
-      <div class="sidebar-card" id="latest-card">
-        <h2><i class="fa-solid fa-satellite-dish"></i> 最新の送金</h2>
-        <div id="latest-feed" class="feed-list"></div>
+      <div class="sidebar-card" id="qr-card">
+        <div class="qr-frame"><div id="pay-qr"></div></div>
+        <div class="qr-text">
+          <strong>スマホで読み取って<br>⚡ sats を投げよう！</strong>
+          <span>地域を選んで、21 sats から。<br>メッセージも地図に出ます</span>
+          <code id="pay-url"></code>
+        </div>
+      </div>
+
+      <div class="sidebar-card" id="round-card">
+        <div class="round-top">
+          <h2 id="round-title"><i class="fa-solid fa-flag-checkered"></i> ラウンド</h2>
+          <div class="round-timer" id="round-timer">--:--</div>
+        </div>
+        <div class="goal">
+          <div class="goal-track">
+            <div class="goal-fill" id="goal-fill"></div>
+            <i class="goal-tick" style="left:25%"></i><i class="goal-tick" style="left:50%"></i><i class="goal-tick" style="left:75%"></i>
+          </div>
+          <div class="goal-text"><span id="goal-now">0</span> / <span id="goal-target">0</span> sats</div>
+        </div>
+        <div class="round-mvp" id="round-mvp"></div>
       </div>
 
       <div class="sidebar-card" id="ranking-card">
-        <h2><i class="fa-solid fa-trophy"></i> 地域別ランキング</h2>
+        <div class="rank-tabs">
+          <button class="rank-tab active" data-rank="region"><i class="fa-solid fa-trophy"></i> 地域</button>
+          <button class="rank-tab" data-rank="people"><i class="fa-solid fa-user-astronaut"></i> 投げた人</button>
+        </div>
         <div id="ranking-list" class="ranking-list"></div>
       </div>
 
-      <div class="sidebar-card" id="demo-card">
-        <h2><i class="fa-solid fa-flask"></i> デモ操作</h2>
-        <p class="demo-note">本番では LNbits の支払い確定を検知して自動追加されます。ここではダミー送金を手動発火できます。</p>
-        <div class="demo-buttons">
-          <button class="demo-btn" data-demo="US">🇺🇸 USA +100</button>
-          <button class="demo-btn" data-demo="JP-13">🗼 東京 +200</button>
-          <button class="demo-btn" data-demo="JP-01">🐟 北海道 +300</button>
-          <button class="demo-btn random" id="demo-random"><i class="fa-solid fa-dice"></i> ランダム送金</button>
-        </div>
+      <div class="sidebar-card" id="latest-card">
+        <h2><i class="fa-solid fa-satellite-dish"></i> 最新</h2>
+        <div id="latest-feed" class="feed-list"></div>
       </div>
 
     </aside>
   </main>
 
-  <!-- ===================== QR STRIP (mock) ===================== -->
-  <footer id="qr-strip">
-    <div class="qr-strip-inner">
-      <div class="qr-item">
-        <div class="qr-box"><i class="fa-solid fa-qrcode"></i></div>
-        <div class="qr-info"><strong>🇺🇸 United States</strong><span>Lightning Invoice (dummy)</span></div>
-      </div>
-      <div class="qr-item">
-        <div class="qr-box"><i class="fa-solid fa-qrcode"></i></div>
-        <div class="qr-info"><strong>🗼 Tokyo</strong><span>Lightning Invoice (dummy)</span></div>
-      </div>
-      <div class="qr-item">
-        <div class="qr-box"><i class="fa-solid fa-qrcode"></i></div>
-        <div class="qr-info"><strong>🐟 Hokkaido</strong><span>Lightning Invoice (dummy)</span></div>
-      </div>
-      <div class="qr-note"><i class="fa-solid fa-circle-info"></i> QRコードは本番実装（LNbits接続）時に各地域ページで動的生成されます。</div>
-    </div>
-  </footer>
+  <div id="demo-card" hidden>
+    <strong><i class="fa-solid fa-flask"></i> デモ</strong>
+    <button class="demo-btn" data-demo="country:US:210">🇺🇸 +210</button>
+    <button class="demo-btn" data-demo="jp_prefecture:JP-13:2100">🗼 +2,100</button>
+    <button class="demo-btn" data-demo="jp_prefecture:JP-01:21000">🦀 +21,000</button>
+    <button class="demo-btn" id="demo-random"><i class="fa-solid fa-dice"></i> ランダム</button>
+    <button class="demo-btn" id="demo-rush"><i class="fa-solid fa-bolt"></i> 連続</button>
+    <span class="demo-note">Blink の API キーを管理画面（admin.html）で入れると、本物の支払いで動きます</span>
+  </div>
 
+  <div id="result" hidden>
+    <div class="result-card">
+      <div class="result-title" id="result-title">ROUND 1 終了！</div>
+      <div class="result-total"><span id="result-sats">0</span> sats</div>
+      <div class="result-sub" id="result-sub"></div>
+      <div class="result-grid" id="result-grid"></div>
+      <div class="result-thanks">ありがとうございました ⚡ 次のラウンドもお楽しみに</div>
+    </div>
+  </div>
+
+  <button id="sound-unlock" hidden><i class="fa-solid fa-volume-high"></i> クリックで音を出す</button>
 </div>
 
-<script src="js/dummy-data.js"></script>
+<script src="vendor/amcharts/amcharts.js"></script>
+<script src="vendor/qrcode/qrcode.js"></script>
+<script src="js/config.js"></script>
+<script src="js/countries.js"></script>
+<script src="js/common.js"></script>
+<script src="js/store.js"></script>
+<script src="js/blink.js"></script>
+<script src="js/effects.js"></script>
 <script src="js/map.js"></script>
 <script src="js/app.js"></script>
 </body>
