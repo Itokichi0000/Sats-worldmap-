@@ -42,6 +42,30 @@ await build({
 });
 await cp(nm("@amcharts/amcharts5/LICENSE"), out("amcharts/LICENSE"));
 
+// Nostr（nostr-tools・Unlicense）。記録をリレーに出す・読むのに使う
+await mkdir(out("nostr"), { recursive: true });
+await build({
+  stdin: {
+    contents: `
+import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools/pure";
+import { SimplePool } from "nostr-tools/pool";
+import * as nip19 from "nostr-tools/nip19";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+window.NostrTools = { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent, SimplePool, nip19, bytesToHex, hexToBytes };
+`,
+    resolveDir: root,
+    loader: "js",
+  },
+  bundle: true,
+  minify: true,
+  format: "iife",
+  target: "es2019",
+  outfile: out("nostr/nostr.js"),
+  legalComments: "eof",
+  logLevel: "warning",
+});
+await cp(nm("nostr-tools/LICENSE"), out("nostr/LICENSE"));
+
 // QR コード（MIT）
 await mkdir(out("qrcode"), { recursive: true });
 await cp(nm("qrcode-generator/dist/qrcode.js"), out("qrcode/qrcode.js"));

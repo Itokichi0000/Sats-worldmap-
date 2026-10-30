@@ -29,6 +29,8 @@
 | **効果音** | 合成した短い音（ファイルなし）。ブラウザの決まりで、スクリーンを一度クリックしてから鳴る |
 | **管理画面**（`admin.html`） | Blink の設定と接続テスト、ラウンドの開始・終了、演出の金額、メッセージの NG ワード・隠す、テストの 1 投、CSV で保存、最初からやり直す |
 | **デモ** | API キーを入れるまではデモ。下のボタンで送金をまねて、演出を確かめられる |
+| **記録（Nostr）** | 1 投ごとの記録を Nostr のリレーに出す（下の「記録」） |
+| **作り直す** | ブラウザのデータが消えた・別のパソコンに替えたときに、Blink の入金履歴と Nostr の記録から集計を作り直す |
 
 メッセージは、NG ワードを含むものは出さず、URL・インボイス・npub は 🔗 に置き換えます。名前やひとことに書いた HTML は文字として出します。
 
@@ -50,6 +52,28 @@
 スクリーンは、このメモが付いた入金だけを数えます（管理画面で「直接の送金も数える」をオンにしたときを除く）。
 本物のお金が Blink に入ったものだけが地図に出るので、偽の「投げた」は作れません。
 
+### 記録はどこにあるか
+
+| 記録 | 中身 | 役目 |
+|---|---|---|
+| **Blink の入金履歴** | 金額・日時・インボイスのメモ（地域・ニックネーム・ひとこと） | **正しい記録。** お金が入った証拠 |
+| **Nostr のリレー** | 1 投ごとに、地域・sats・ニックネーム・ひとこと・時刻・ラウンド・隠したか（NIP-78、kind 30078） | 写し。パソコンが替わっても「隠した」「どのラウンドか」を戻せる。あとでだれでも結果を見られる |
+| スクリーンのブラウザ | 集計に使う写し（localStorage） | 画面を描くため。CSV でも保存できる |
+
+**だれが投げたか（送り主のアドレス）は、Lightning の仕組み上わかりません。** わかるのは、お客さんが自分で書いたニックネームだけです。
+
+Nostr の記録は、スクリーンのブラウザで作る**記録専用の鍵**で署名します（お金・ほかのアカウントとは関係ない使い捨ての鍵）。
+
+```
+kind 30078（置き換えのできるイベント。d ごとに最新の 1 つ）
+  1 投   d = "<イベント>:<Blink の取引 id>"   content = {"v":1,"id":…,"at":…,"sats":2100,"r":"jp_prefecture:JP-13","n":"ましゅ","m":"…","round":1,"hidden":false,"hash":…}
+  全体   d = "<イベント>:meta"               content = {"v":1,"kind":"meta","since":…,"rounds":[…],"eventName":"…"}
+  t タグ = "satsmap"・"satsmap-<イベント>"
+```
+
+- テストの 1 投は出しません。隠したもの・NG ワードを含むものは、名前とひとことを空にして出します（隠すと、空にした版で置き換えます）
+- **リレーに出したものは公開され、消せません。** 支払いページにもそう書いています。出したくないときは、管理画面で「Nostr に記録を出す」をオフ
+
 ## 3. 準備するもの
 
 1. **Blink のアカウント**（https://www.blink.sv）。**イベント専用のアカウントをおすすめします**（スクリーンは受け取った支払いを読むので）
@@ -66,7 +90,7 @@ npm run serve
 `http://localhost:8787/admin.html` で Blink のユーザー名と API キーを入れると、本物の支払いで動きます。
 スマホからは同じ Wi-Fi で `http://<パソコンの IP>:8787/pay.html?u=<Blink のユーザー名>`。
 
-自動の確認（Blink の API はまねて答えます）：
+自動の確認（Blink の API はまねて答え、Nostr はテスト用のリレーを立てます）：
 
 ```bash
 npm test
@@ -119,9 +143,19 @@ npm run deploy
 
 記録はそのパソコンのブラウザの中にあり、開き直しても続きから。閉じていたあいだの入金も、開いたときに数えます（演出はなし）。
 
+### パソコンが壊れた・別のパソコンに替える
+
+1. 前のパソコンの管理画面で「鍵を書き出す（nsec）」を控えておく（**本番の前に**）。控えがなくても、金額・地域・名前は Blink の履歴から戻せます
+2. 新しいパソコンで、スクリーンと管理画面を開き、Blink のユーザー名と API キーを入れる
+3. 「記録（Nostr）」→「鍵を読み込む」で控えた nsec を貼る
+4. 「作り直す」→「Nostr でイベントを探す」→ イベントを選ぶ（数え始めの時刻も入る）→「Blink の履歴から作り直す」
+
+ブラウザのデータを消してしまっただけのときは、4 だけで戻せます（時刻はイベントを始めた時刻に）。
+
 ## 7. 安全とお金のこと
 
-- API キー・記録は、スクリーンを映すパソコンのブラウザ（localStorage）の中だけ。サイトのファイル・Nostr には入りません。終わったら管理画面の「キーを消す」
+- API キーは、スクリーンを映すパソコンのブラウザ（localStorage）の中だけ。サイトのファイル・Nostr には入りません。終わったら管理画面の「キーを消す」
+- 記録の鍵（nsec）も、そのブラウザの中だけ。お金とは関係なく、漏れても「この記録に書き足せる」だけです
 - API キーは **Read だけ**で作る。漏れても残高と履歴が見えるだけで、お金は動かせません
 - 管理画面は URL を知っていればだれでも開けますが、キーも記録もその人のブラウザにしかないので、会場のスクリーンには何もできません
 - 「投げた sats は返金できない」「景品・賞品はない」と支払いページに書いています。**投げた結果で景品が当たる形にはしないでください**（賭博・景品表示法にかかるおそれがあります）
@@ -135,6 +169,7 @@ npm run deploy
 - **nsite.lol** で、ページから api.blink.sv への通信が止められないか
 - 受け取りのメモ（`memo`）が Blink の取引の一覧にそのまま出るか（出ないと、地域が「⚡」になる）
 - 会場の Wi-Fi が不安定なときは、スクリーンのパソコンをスマホのテザリングにつなぐと安心
+- 記録を出すリレー（既定：yabu.me・r.kojira.io・nos.lol・relay.damus.io・relay.primal.net）が kind 30078 を受け取るか。管理画面の「記録（Nostr）」に「✓ すべてリレーに出しました」が出れば OK
 
 ## 9. ファイル
 
@@ -147,13 +182,14 @@ js/config.js      会場ごとの設定（Blink のユーザー名・イベン�
 js/common.js      地域（都道府県・国）・メモの読み書き・NG ワード
 js/blink.js       Blink の GraphQL API
 js/store.js       設定と記録（localStorage）・スクリーンと管理画面の知らせ（BroadcastChannel）
+js/records.js     Nostr の記録（出す・読む）
 js/effects.js     演出（稲妻・花火・紙吹雪・札）と効果音
 js/map.js         amCharts の世界地図・日本地図
 js/app.js         スクリーンの動き
 js/pay.js / js/admin.js
 js/countries.js   国の一覧（scripts/build-vendor.mjs が作る）
-vendor/           amCharts・QR コード・Font Awesome（scripts/build-vendor.mjs が node_modules から作る）
-scripts/          serve.mjs（手元のサーバー）・e2e.mjs（自動の確認）・build-site.mjs・deploy-nsite.sh・build-vendor.mjs
+vendor/           amCharts・QR コード・Font Awesome・nostr-tools（scripts/build-vendor.mjs が node_modules から作る）
+scripts/          serve.mjs（手元のサーバー）・e2e.mjs（自動の確認）・test-relay.mjs（確認用の Nostr リレー）・build-site.mjs・deploy-nsite.sh・build-vendor.mjs
 .nsite/config.json  nsite の置き場所
 ```
 
@@ -165,6 +201,7 @@ scripts/          serve.mjs（手元のサーバー）・e2e.mjs（自動の確�
 |---|---|
 | [amCharts 5](https://www.amcharts.com/)（地図） | 無料版のリンクウェア。地図の左下のロゴを消さないこと、`vendor/amcharts/LICENSE` を一緒に置くことが条件 |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator)（Kazuhiko Arase） | MIT |
+| [nostr-tools](https://github.com/nbd-wtf/nostr-tools) | Unlicense（`vendor/nostr/LICENSE`） |
 | [Font Awesome Free](https://fontawesome.com/) | アイコン CC BY 4.0・フォント SIL OFL 1.1・コード MIT（`vendor/fontawesome/LICENSE.txt`） |
 | Inter・JetBrains Mono（Google Fonts） | SIL OFL 1.1 |
 | 元のモックアップ | [fixthemoney/SatsMap](https://github.com/fixthemoney/SatsMap) |

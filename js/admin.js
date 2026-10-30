@@ -5,7 +5,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const NUM = ["roundMinutes", "roundGoal", "bigAt", "whaleAt", "rotateSec"];
-  const BOOL = ["sound", "zoom", "rotate", "countAll", "showMessages"];
+  const BOOL = ["sound", "zoom", "rotate", "countAll", "showMessages", "record"];
   let lastSeen = 0;
 
   function fill() {
@@ -16,6 +16,10 @@
     NUM.forEach((k) => { $(k).value = s[k]; });
     BOOL.forEach((k) => { $(k).checked = !!s[k]; });
     $("ngWords").value = (s.ngWords || []).join("\n");
+    $("recordRelays").value = (s.recordRelays || []).join("\n");
+    $("recordRelays").placeholder = SM.records.relays().join("\n");
+    SM.records.ensureKey();
+    $("rec-npub").textContent = SM.records.npub();
     const cfgUser = (window.SATS_CONFIG && window.SATS_CONFIG.blinkUsername) || "";
     $("username-note").textContent = cfgUser
       ? `js/config.js に「${cfgUser}」が書いてあるので、支払いページはそちらを使います。`
@@ -90,6 +94,7 @@
     });
     BOOL.forEach((k) => { patch[k] = $(k).checked; });
     patch.ngWords = $("ngWords").value.split(/\n/).map((w) => w.trim()).filter(Boolean).slice(0, 200);
+    patch.recordRelays = $("recordRelays").value.split(/\s+/).map((w) => w.trim()).filter((u) => SM.records.isRelayUrl(u)).slice(0, 12);
     SM.saveSettings(patch);
   }
 
@@ -146,6 +151,50 @@
     sel.value = "jp_prefecture:JP-13";
   }
 
+  // ── 記録（Nostr）・作り直す ─────────────────────────────
+  function renderRecord(rec) {
+    const el = $("rec-state");
+    if (!rec) return;
+    if (!rec.on) {
+      el.className = "rec-state";
+      el.textContent = "Nostr に出していません";
+    } else if (rec.failed) {
+      el.className = "rec-state ng";
+      el.textContent = `⚠ リレーに出せていません（あと ${rec.pending} 件。30 秒ごとに出し直します）`;
+    } else {
+      el.className = "rec-state ok";
+      el.textContent = rec.pending ? `出しています…（あと ${rec.pending} 件）` : "✓ すべてリレーに出しました";
+    }
+    el.textContent += `　イベント：${rec.session}`;
+    fillSessions(rec.session);
+  }
+
+  const toLocalInput = (sec) => {
+    const d = new Date(sec * 1000);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
+  let found = [];
+  function fillSessions(current = SM.session()) {
+    const sel = $("rebuild-session");
+    const keep = sel.value;
+    const list = [{ session: current, label: `いまのイベント（${current}）` }];
+    found.filter((x) => x.session !== current).forEach((x) => {
+      const when = x.since ? new Date(x.since * 1000).toLocaleString("ja-JP") : "";
+      list.push({ session: x.session, label: `${x.eventName || "イベント"} ${when}（${x.session}）`, since: x.since });
+    });
+    sel.innerHTML = list.map((x) => `<option value="${SM.esc(x.session)}" data-since="${x.since || ""}">${SM.esc(x.label)}</option>`).join("");
+    if (list.some((x) => x.session === keep)) sel.value = keep;
+  }
+
+  function rebuildLog(lines, ok) {
+    const el = $("rebuild-log");
+    el.hidden = false;
+    el.className = `log ${ok ? "ok" : "ng"}`;
+    el.textContent = lines.join("\n");
+  }
+
   function screenState() {
     const el = $("screen-state");
     const alive = Date.now() - lastSeen < 6000;
@@ -182,7 +231,7 @@
       fill();
     });
 
-    [...NUM, ...BOOL, "ngWords"].forEach((k) => $(k).addEventListener("change", saveAll));
+    [...NUM, ...BOOL, "ngWords", "recordRelays"].forEach((k) => $(k).addEventListener("change", saveAll));
 
     $("round-start").addEventListener("click", () => { saveAll(); SM.bus.post({ type: "round-start" }); });
     $("round-end").addEventListener("click", () => SM.bus.post({ type: "round-end" }));
@@ -209,6 +258,60 @@
         renderEntries();
         renderRound();
         screenState();
+        renderRecord(msg.record);
+      } else if (msg.type === "rebuild-done") {
+        $("rebuild").disabled = false;
+        if (!msg.ok) return rebuildLog([`✗ ${msg.error}`], false);
+        const lines = [`✓ 作り直しました：${SM.fmt(msg.count)} 投・${SM.fmt(msg.sats)} sats`];
+        lines.push(msg.relayError ? `！ Nostr の記録は読めませんでした（${msg.relayError}）。隠した・ラウンドは時刻から決めました` : `Nostr の記録 ${msg.fromRelay} 件から「隠した」「ラウンド」を戻しました`);
+        rebuildLog(lines, true);
+        $("rebuild-since").value = toLocalInput(SM.since());
+      }
+    });
+
+    $("rebuild-since").value = toLocalInput(SM.since());
+    fillSessions();
+    $("rebuild-session").addEventListener("change", (e) => {
+      const since = Number(e.target.selectedOptions[0] && e.target.selectedOptions[0].dataset.since);
+      if (since) $("rebuild-since").value = toLocalInput(since);
+    });
+    $("find-sessions").addEventListener("click", async () => {
+      rebuildLog(["Nostr で探しています…"], true);
+      try {
+        const npub = $("find-npub").value.trim();
+        const pk = npub ? SM.records.parsePubkey(npub) : SM.records.pubkey();
+        found = await SM.records.fetchSessions(pk);
+        fillSessions();
+        rebuildLog([found.length ? `✓ ${found.length} 件のイベントが見つかりました。上で選んでください` : "見つかりませんでした（鍵・リレーを確かめてください）"], !!found.length);
+      } catch (err) {
+        rebuildLog([`✗ ${err.message}`], false);
+      }
+    });
+    $("rebuild").addEventListener("click", () => {
+      const t = new Date($("rebuild-since").value).getTime();
+      if (!Number.isFinite(t)) return rebuildLog(["✗ 時刻を入れてください"], false);
+      if (!SM.apiKey()) return rebuildLog(["✗ 先に Blink の API キーを入れてください"], false);
+      if (Date.now() - lastSeen > 6000) return rebuildLog(["✗ スクリーン（index.html）をこのブラウザで開いてから押してください"], false);
+      if (!confirm("いまの集計を、Blink の入金履歴から作り直します。よいですか？")) return;
+      $("rebuild").disabled = true;
+      rebuildLog(["作り直しています…（Blink の履歴を読んでいます）"], true);
+      const npub = $("find-npub").value.trim();
+      SM.bus.post({ type: "rebuild", since: Math.floor(t / 1000), session: $("rebuild-session").value, pubkey: npub || undefined });
+    });
+
+    $("copy-npub").addEventListener("click", () => navigator.clipboard.writeText(SM.records.npub()).catch(() => prompt("npub", SM.records.npub())));
+    $("export-nsec").addEventListener("click", () => {
+      if (!confirm("記録の鍵（nsec）を表示します。この鍵があれば、この記録に書き足せます（お金は動かせません）。人に見せないでください。")) return;
+      prompt("記録の鍵（nsec）", SM.records.exportNsec());
+    });
+    $("import-nsec").addEventListener("click", () => {
+      const v = prompt("ほかのパソコンで書き出した nsec を貼り付けてください（いまの鍵は置き換わります）");
+      if (!v) return;
+      try {
+        $("rec-npub").textContent = SM.records.importNsec(v);
+        SM.bus.post({ type: "settings" });
+      } catch (err) {
+        alert(err.message);
       }
     });
     SM.bus.post({ type: "ping" });

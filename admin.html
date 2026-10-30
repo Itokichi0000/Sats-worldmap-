@@ -104,6 +104,49 @@
   </section>
 
   <section class="card">
+    <h2><i class="fa-solid fa-feather"></i> 記録（Nostr）</h2>
+    <p class="note">
+      1 投ごとに「地域・sats・ニックネーム・ひとこと・時刻」を Nostr のリレーに出します（NIP-78）。正しい記録は Blink の入金履歴で、これはその写しです。
+      パソコンが壊れても、ここから「隠した」「どのラウンドか」を戻せます。<b>リレーに出したものは公開され、消せません</b>（隠したもの・NG ワードのものは、名前とひとことを出しません）。
+    </p>
+    <label class="check"><input type="checkbox" id="record"> Nostr に記録を出す</label>
+    <div class="rec-state" id="rec-state">スクリーンを開くと、記録の状態がここに出ます</div>
+    <label>記録の鍵（このブラウザで作った、記録専用の鍵。お金とは関係ありません）
+      <div class="row tight"><code id="rec-npub">—</code><button class="btn small" id="copy-npub"><i class="fa-regular fa-copy"></i> npub</button></div>
+    </label>
+    <div class="row">
+      <button class="btn small" id="export-nsec"><i class="fa-solid fa-key"></i> 鍵を書き出す（nsec）</button>
+      <button class="btn small" id="import-nsec"><i class="fa-solid fa-file-import"></i> 鍵を読み込む</button>
+    </div>
+    <p class="note">別のパソコンで同じ記録を続けるときは、ここで書き出した nsec を、そちらの管理画面で読み込みます。読むだけなら npub だけで足ります。</p>
+    <label>記録を出すリレー（1 行に 1 つ。空なら既定）
+      <textarea id="recordRelays" rows="3" placeholder="wss://yabu.me"></textarea>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-screwdriver-wrench"></i> 作り直す</h2>
+    <p class="note">
+      Blink の入金履歴を読み直して、集計を作り直します。ブラウザのデータが消えたとき・別のパソコンに替えたときに使います。
+      金額・地域・名前は Blink の履歴（インボイスのメモ）から、「隠した」「どのラウンドか」は Nostr の記録から戻します。
+    </p>
+    <div class="grid2">
+      <label>この時刻からの入金を数える<input id="rebuild-since" type="datetime-local" step="60"></label>
+      <label>イベント（Nostr の記録）
+        <select id="rebuild-session"></select>
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn" id="find-sessions"><i class="fa-solid fa-magnifying-glass"></i> Nostr でイベントを探す</button>
+      <input id="find-npub" placeholder="ほかの鍵の npub（空ならこの鍵）" class="grow">
+    </div>
+    <div class="row">
+      <button class="btn primary" id="rebuild"><i class="fa-solid fa-rotate"></i> Blink の履歴から作り直す</button>
+    </div>
+    <pre class="log" id="rebuild-log" hidden></pre>
+  </section>
+
+  <section class="card">
     <h2><i class="fa-solid fa-calendar-day"></i> イベント</h2>
     <div class="row">
       <button class="btn" id="export"><i class="fa-solid fa-file-csv"></i> 記録を CSV で保存</button>
@@ -118,7 +161,9 @@
 <script src="js/countries.js"></script>
 <script src="js/common.js"></script>
 <script src="js/store.js"></script>
+<script src="vendor/nostr/nostr.js"></script>
 <script src="js/blink.js"></script>
+<script src="js/records.js"></script>
 <script src="js/admin.js"></script>
 </body>
 </html>

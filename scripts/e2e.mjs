@@ -4,6 +4,7 @@
 import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
 import { serve } from "./serve.mjs";
+import { startRelay } from "./test-relay.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -72,6 +73,7 @@ function gql(body, headers) {
 }
 
 const server = await serve(0);
+const relay = await startRelay(0);
 const base = `http://localhost:${server.address().port}`;
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
@@ -86,6 +88,11 @@ async function mockBlink(ctx) {
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
 }
 await mockBlink(context);
+// 記録は手元のテスト用リレーに出す
+const useTestRelay = (ctx) => ctx.addInitScript((url) => {
+  if (!localStorage.getItem("satsmap.settings.v1")) localStorage.setItem("satsmap.settings.v1", JSON.stringify({ recordRelays: [url] }));
+}, relay.url);
+await useTestRelay(context);
 
 const errors = [];
 const watch = (page, name) => {
@@ -229,6 +236,65 @@ try {
   ok(!overflow, "1280×720 でも横にはみ出さない");
   await shot(screen, "8-laptop");
 
+  // 5. Nostr の記録
+  await screen.waitForTimeout(2500);
+  const latest = new Map();
+  relay.events.filter((e) => e.kind === 30078).forEach((e) => {
+    const d = e.tags.find((t) => t[0] === "d")[1];
+    if (!latest.has(d) || latest.get(d).created_at < e.created_at) latest.set(d, e);
+  });
+  const recs = [...latest.values()].map((e) => JSON.parse(e.content));
+  const items = recs.filter((c) => c.id);
+  const session = await screen.evaluate(() => SM.session());
+  ok(items.length === 3 && items.reduce((a, c) => a + c.sats, 0) === 23121, "本物の 3 投が Nostr に記録される（テストの 1 投は出さない）");
+  ok([...latest.keys()].every((d) => d.startsWith(`${session}:`)), "記録の d タグがイベントごとに分かれる");
+  const tokyo = items.find((c) => c.r === "jp_prefecture:JP-13");
+  ok(tokyo && tokyo.n === "ましゅ" && tokyo.m === "はじめての Lightning！" && tokyo.round === 0, "記録に地域・名前・ひとこと・ラウンドが入る");
+  const whale = items.find((c) => c.sats === 21000);
+  ok(whale && whale.hidden && whale.n === "" && whale.m === "" && whale.round === 1, "隠したものは、名前とひとことを消して出し直す");
+  const ngRec = items.find((c) => c.r === "country:US");
+  ok(ngRec && ngRec.m === "", "NG ワードのひとことは Nostr にも出さない");
+  const meta = recs.find((c) => c.kind === "meta");
+  ok(meta && meta.rounds.length === 1 && meta.rounds[0].no === 1, "ラウンドの記録も Nostr に出る");
+  const pk = await screen.evaluate(() => SM.records.pubkey());
+  ok(relay.events.every((e) => e.pubkey === pk), "記録はこのブラウザの記録用の鍵で署名される");
+
+  // 6. 別のパソコンで、Blink の履歴と Nostr の記録から作り直す
+  const nsec = await admin.evaluate(() => SM.records.exportNsec());
+  const ctx2 = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  await mockBlink(ctx2);
+  await useTestRelay(ctx2);
+  const screen2 = await ctx2.newPage();
+  watch(screen2, "screen2");
+  await screen2.goto(`${base}/index.html`);
+  const admin2 = await ctx2.newPage();
+  watch(admin2, "admin2");
+  await admin2.goto(`${base}/admin.html`);
+  await admin2.fill("#username", "satsmap");
+  await admin2.fill("#apikey", blink.key);
+  await admin2.click("#save-blink");
+  admin2.once("dialog", (d) => d.accept(nsec));
+  await admin2.click("#import-nsec");
+  ok((await admin2.locator("#rec-npub").textContent()) === (await admin.locator("#rec-npub").textContent()), "nsec を読み込むと、同じ記録の鍵になる");
+  await screen2.waitForFunction(() => document.getElementById("status-chip").textContent === "● LIVE", null, { timeout: 8000 });
+  ok((await screen2.locator("#stat-total-sats").textContent()) === "0", "新しいパソコンは、はじめは 0（前の入金は数えない）");
+  await admin2.click("#find-sessions");
+  await admin2.waitForFunction(() => /見つかりました/.test(document.getElementById("rebuild-log").textContent), null, { timeout: 8000 });
+  await admin2.selectOption("#rebuild-session", session);
+  admin2.once("dialog", (d) => d.accept());
+  await admin2.click("#rebuild");
+  await admin2.waitForFunction(() => /作り直しました/.test(document.getElementById("rebuild-log").textContent), null, { timeout: 15000 });
+  const rlog = await admin2.locator("#rebuild-log").textContent();
+  ok(/3 投・23,121 sats/.test(rlog) && /Nostr の記録 3 件/.test(rlog), "Blink の履歴から 3 投を作り直し、Nostr の記録を読む");
+  await screen2.waitForTimeout(800);
+  ok((await screen2.locator("#stat-total-sats").textContent()) === "23,121", "作り直すと、スクリーンの集計が戻る");
+  ok(!(await screen2.locator("#latest-feed").textContent()).includes("21000 いきます"), "隠したものは、作り直しても隠れたまま");
+  const rounds = await screen2.evaluate(() => SM.entries().map((e) => e.round).sort().join(","));
+  ok(rounds === "0,1,1", "どのラウンドの 1 投かも戻る");
+  ok((await screen2.evaluate(() => SM.session())) === session, "同じイベントの記録に書き足すようになる");
+  await shot(admin2, "9-rebuild");
+  await ctx2.close();
+
   ok(errors.length === 0, `画面のエラーなし${errors.length ? `：\n  ${errors.join("\n  ")}` : ""}`);
 } catch (e) {
   console.error(e);
@@ -236,6 +302,7 @@ try {
 } finally {
   await browser.close();
   server.close();
+  relay.close();
 }
 console.log(failed ? `\n${failed} 件 失敗` : "\nすべて通りました");
 process.exit(failed ? 1 : 0);

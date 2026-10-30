@@ -13,6 +13,7 @@ window.SM = window.SM || {};
     entries: "satsmap.entries.v1",
     round: "satsmap.round.v1",
     since: "satsmap.since.v1",
+    session: "satsmap.session.v1",
   };
 
   const DEFAULTS = {
@@ -29,6 +30,8 @@ window.SM = window.SM || {};
     ngWords: [],
     countAll: false,   // SatsMap のメモがない入金（Lightning アドレスへ直接など）も数える
     pollSec: 4,
+    record: true,      // 1 投ごとの記録を Nostr リレーに出す
+    recordRelays: [],  // 空なら js/config.js（なければ records.js の既定）
   };
 
   function read(key, fallback) {
@@ -82,7 +85,29 @@ window.SM = window.SM || {};
     }
     return s;
   };
-  SM.resetSince = () => write(K.since, Math.floor(Date.now() / 1000));
+  SM.setSince = (sec) => write(K.since, Math.floor(sec));
+
+  /** イベント 1 回ぶんの名前（Nostr の記録の d・t タグに入る）。やり直すと新しくなる */
+  const newSession = () => {
+    const b = new Uint8Array(8);
+    crypto.getRandomValues(b);
+    return [...b].map((x) => x.toString(36).padStart(2, "0")).join("").slice(0, 12);
+  };
+  SM.session = () => {
+    let id = read(K.session, "");
+    if (!/^[a-z0-9]{6,32}$/.test(id)) {
+      id = newSession();
+      write(K.session, id);
+    }
+    return id;
+  };
+  SM.setSession = (id) => {
+    if (/^[a-z0-9]{6,32}$/.test(id)) write(K.session, id);
+  };
+  SM.resetSince = () => {
+    write(K.since, Math.floor(Date.now() / 1000));
+    write(K.session, newSession());
+  };
 
   // スクリーンと管理画面のあいだの知らせ
   const listeners = new Set();

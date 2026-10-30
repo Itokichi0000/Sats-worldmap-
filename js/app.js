@@ -219,18 +219,26 @@
     if (left <= 0) endRound();
   }
 
+  // これまでのラウンド（作り直すとき、時刻からどのラウンドかを決める）
+  const history = () => (Array.isArray(round.history) ? round.history : []);
+  function roundAt(ms) {
+    const h = history().find((x) => ms >= x.startedAt - 1000 && ms <= x.endsAt + 1000);
+    return h ? h.no : 0;
+  }
+
   function startRound() {
     settings = SM.settings();
     const no = (round.no || 0) + 1;
+    const startedAt = Date.now();
+    const endsAt = startedAt + Math.max(1, Number(settings.roundMinutes) || 10) * 60000;
+    const goal = Math.max(1, Number(settings.roundGoal) || 21000);
     round = {
-      no,
-      startedAt: Date.now(),
-      endsAt: Date.now() + Math.max(1, Number(settings.roundMinutes) || 10) * 60000,
-      goal: Math.max(1, Number(settings.roundGoal) || 21000),
+      no, startedAt, endsAt, goal,
       state: "running",
-      hit: [],
+      history: [...history().filter((x) => x.no !== no), { no, startedAt, endsAt, goal }].slice(-200),
     };
     SM.saveRound(round);
+    publishMeta();
     $("result").hidden = true;
     SM.sound.play("gong");
     SM.fx.banner(`<small>ROUND ${no}</small>START!<em>ゴール ${SM.fmt(round.goal)} sats</em>`, "goal", 2600);
@@ -240,8 +248,10 @@
 
   function endRound() {
     if (round.state !== "running") return;
-    round = { ...round, state: "done", endsAt: Date.now() };
+    const endsAt = Date.now();
+    round = { ...round, state: "done", endsAt, history: history().map((x) => (x.no === round.no ? { ...x, endsAt } : x)) };
     SM.saveRound(round);
+    publishMeta();
     showResult();
     renderAll();
     changed();
@@ -292,8 +302,46 @@
       queue.push(e);
       play();
     }
+    publishRecords();
     changed();
   }
+
+  // ── Nostr リレーへの記録（写し。正しいのは Blink の履歴） ─────
+  let publishing = false;
+  let recordState = { pending: 0, failed: false };
+  async function publishRecords() {
+    if (publishing || !settings.record || !window.SM.records) return;
+    publishing = true;
+    try {
+      const session = SM.session();
+      for (const e of entries.filter((x) => !x.pub && !x.test)) {
+        const ok = await SM.records.publishEntry(e, session, settings.ngWords);
+        if (!ok) {
+          recordState.failed = true;
+          break;
+        }
+        e.pub = true;
+        recordState.failed = false;
+        SM.saveEntries(entries);
+      }
+    } catch (err) {
+      console.error(err);
+      recordState.failed = true;
+    } finally {
+      publishing = false;
+      recordState.pending = entries.filter((x) => !x.pub && !x.test).length;
+      changed();
+    }
+  }
+  function publishMeta() {
+    if (!settings.record || !window.SM.records) return;
+    SM.records.publishMeta({
+      since: SM.since(),
+      rounds: history(),
+      eventName: (window.SATS_CONFIG && window.SATS_CONFIG.eventName) || "",
+    }, SM.session()).catch(() => {});
+  }
+  setInterval(publishRecords, 30000);
 
   let homeTimer = 0;
   async function play() {
@@ -543,6 +591,7 @@
   let pollTimer = 0;
   async function poll(initial) {
     clearTimeout(pollTimer);
+    if (rebuilding) return;
     const key = SM.apiKey();
     if (!key) {
       setStatus("demo");
@@ -573,6 +622,7 @@
           r: d && d.region ? SM.regionKey(d.region) : null,
           n: d ? d.nick : "",
           m: d ? d.msg : SM.tidy(it.memo, SM.MSG_MAX),
+          hash: it.hash,
           hidden: false,
         }, { silent: initial });
       }
@@ -598,7 +648,7 @@
 
   // 管理画面へ「変わった」を知らせる
   function changed() {
-    SM.bus.post({ type: "changed", status, round });
+    SM.bus.post({ type: "changed", status, round, record: { ...recordState, on: !!settings.record, session: SM.session() } });
   }
 
   // ── デモ ──────────────────────────────────────────────
@@ -670,6 +720,100 @@
     });
   }
 
+  // ── 作り直す（Blink の履歴が正。Nostr の記録から「隠した」「ラウンド」を戻す） ──
+  let rebuilding = false;
+  async function rebuild(msg) {
+    if (rebuilding) return;
+    const key = SM.apiKey();
+    const reply = (o) => SM.bus.post({ type: "rebuild-done", ...o });
+    if (!key) return reply({ ok: false, error: "Blink の API キーがありません" });
+    rebuilding = true;
+    clearTimeout(pollTimer);
+    try {
+      if (msg.session) SM.setSession(msg.session);
+      const session = SM.session();
+      const since = Number(msg.since) > 0 ? Math.floor(Number(msg.since)) : SM.since();
+
+      // 1. Nostr の記録（あれば）
+      let recs = { entries: new Map(), meta: null };
+      let relayError = "";
+      if (settings.record && window.SM.records) {
+        try {
+          const pk = msg.pubkey ? SM.records.parsePubkey(msg.pubkey) : SM.records.pubkey();
+          recs = await SM.records.fetchAll(session, pk);
+        } catch (err) {
+          relayError = err.message || String(err);
+        }
+      }
+      if (recs.meta && Array.isArray(recs.meta.rounds)) {
+        const known = new Map(history().map((x) => [x.no, x]));
+        recs.meta.rounds.forEach((x) => {
+          if (x && Number.isInteger(x.no) && x.no > 0 && !known.has(x.no)) known.set(x.no, { no: x.no, startedAt: +x.startedAt || 0, endsAt: +x.endsAt || 0, goal: +x.goal || settings.roundGoal });
+        });
+        const h = [...known.values()].sort((a, b) => a.no - b.no);
+        round = { ...round, no: Math.max(round.no || 0, ...h.map((x) => x.no), 0), history: h };
+        SM.saveRound(round);
+      }
+
+      // 2. Blink の入金履歴を、since までさかのぼって読む
+      const items = [];
+      let after = null;
+      for (let page = 0; page < 200; page++) {
+        const res = await SM.blink.receives(key, { first: 50, after });
+        res.items.forEach((it) => { if (it.at >= since) items.push(it); });
+        if (!res.hasMore || res.oldest < since || !res.cursor) break;
+        after = res.cursor;
+      }
+
+      // 3. 組み立てる（いまの記録・Nostr の記録の「隠した」「ラウンド」を引き継ぐ）
+      const before = new Map(entries.map((e) => [e.id, e]));
+      const next = [];
+      for (const it of items) {
+        const d = SM.memo.decode(it.memo);
+        if (!d && !settings.countAll) continue;
+        const old = before.get(it.id);
+        const rec = recs.entries.get(it.id);
+        const at = it.at * 1000;
+        next.push({
+          id: it.id,
+          at,
+          sats: it.sats,
+          r: d && d.region ? SM.regionKey(d.region) : null,
+          n: d ? d.nick : "",
+          m: d ? d.msg : SM.tidy(it.memo, SM.MSG_MAX),
+          hash: it.hash,
+          hidden: old ? !!old.hidden : !!(rec && rec.hidden),
+          round: old && old.round ? old.round : rec && Number.isInteger(rec.round) && rec.round > 0 ? rec.round : roundAt(at),
+          // Nostr にあって、中身が同じなら出し直さない
+          pub: !!(rec && rec.sats === it.sats && !!rec.hidden === !!(old ? old.hidden : rec.hidden)),
+        });
+        seen.add(it.id);
+      }
+      next.sort((x, y) => x.at - y.at);
+      queue.length = 0;
+      pending.clear();
+      entries = next;
+      SM.saveEntries(entries);
+      SM.setSince(since);
+      renderAll();
+      publishMeta();
+      publishRecords();
+      reply({
+        ok: true,
+        count: entries.length,
+        sats: entries.reduce((s, e) => s + e.sats, 0),
+        fromRelay: recs.entries.size,
+        relayError,
+      });
+    } catch (err) {
+      reply({ ok: false, error: err.message || String(err) });
+    } finally {
+      rebuilding = false;
+      changed();
+      pollTimer = setTimeout(() => poll(false), 2000);
+    }
+  }
+
   // 管理画面からの頼み
   SM.bus.on((msg) => {
     if (!msg || typeof msg !== "object") return;
@@ -681,6 +825,7 @@
         renderQr();
         renderAll();
         poll(true);
+        publishRecords();
         break;
       case "round-start":
         startRound();
@@ -692,7 +837,9 @@
         const e = entries.find((x) => x.id === msg.id);
         if (e) {
           e.hidden = !!msg.hidden;
+          e.pub = false;
           SM.saveEntries(entries);
+          publishRecords();
           document.querySelectorAll(".bubble").forEach((b) => b.remove());
           renderAll();
           changed();
@@ -714,12 +861,16 @@
         pending.clear();
         SM.saveEntries(entries);
         SM.resetSince();
-        round = { no: 0, startedAt: 0, endsAt: 0, goal: settings.roundGoal, state: "idle" };
+        round = { no: 0, startedAt: 0, endsAt: 0, goal: settings.roundGoal, state: "idle", history: [] };
         SM.saveRound(round);
         $("result").hidden = true;
         renderAll();
+        publishMeta();
         changed();
         poll(true);
+        break;
+      case "rebuild":
+        rebuild(msg);
         break;
       case "ping":
         changed();

@@ -19,4 +19,7 @@ window.SATS_CONFIG = {
   maxSats: 1000000,
 
   blinkApi: "https://api.blink.sv/graphql",
+
+  // 1 投ごとの記録を出す Nostr リレー（管理画面で変えられる）
+  recordRelays: ["wss://yabu.me", "wss://r.kojira.io", "wss://nos.lol", "wss://relay.damus.io", "wss://relay.primal.net"],
 };
