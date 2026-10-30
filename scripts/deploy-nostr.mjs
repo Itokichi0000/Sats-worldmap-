@@ -18,7 +18,9 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { getConversationKey, decrypt } from "nostr-tools/nip44";
-import { SimplePool } from "nostr-tools/pool";
+import { SimplePool, useWebSocketImplementation } from "nostr-tools/pool";
+import WebSocket from "ws";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import { BunkerSigner, createNostrConnectURI, parseBunkerInput } from "nostr-tools/nip46";
 import * as nip19 from "nostr-tools/nip19";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -44,6 +46,18 @@ const TYPES = {
 if (!/^[a-z0-9-]{1,13}$/.test(SITE) || SITE.endsWith("-")) throw new Error(`サイトの名前（${SITE}）は a-z0-9- の 1〜13 文字`);
 
 const log = (...a) => console.log(...a);
+
+// Node の組み込みの WebSocket は、つながらなかったときに nostr-tools と組んで止まらなくなる（スタックがあふれる）。
+// ws を使い、HTTPS_PROXY があればそれを通す
+const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
+class NodeWebSocket extends WebSocket {
+  constructor(url, protocols) {
+    super(url, protocols, agent ? { agent } : {});
+  }
+}
+useWebSocketImplementation(NodeWebSocket);
+process.on("unhandledRejection", (e) => log(`  （リレーとの接続：${e && e.message ? e.message : e}）`));
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what}：${ms / 1000} 秒たっても終わりません`)), ms))]);
 

@@ -15,6 +15,7 @@
     "@amcharts/amcharts5-geodata": "^5.1.6",
     "@fortawesome/fontawesome-free": "^7.3.1",
     "esbuild": "^0.28.2",
+    "https-proxy-agent": "^9.1.0",
     "nostr-tools": "^2.25.4",
     "qrcode-generator": "^2.0.4",
     "ws": "^8.22.0"
