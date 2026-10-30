@@ -575,6 +575,13 @@
     u.hash = "";
     const cfgUser = (window.SATS_CONFIG && window.SATS_CONFIG.blinkUsername) || "";
     if (!cfgUser && settings.username) u.searchParams.set("u", settings.username);
+    // スマホに「いまの会場」を出すための、記録の鍵とイベント（とリレーを変えたときはリレー）
+    if (settings.record && window.SM.records) {
+      SM.records.ensureKey();
+      u.searchParams.set("k", SM.records.npub());
+      u.searchParams.set("s", SM.session());
+      if (settings.recordRelays && settings.recordRelays.length) u.searchParams.set("rl", SM.records.relays().join(","));
+    }
     return u.toString();
   }
   function renderQr() {
@@ -796,6 +803,7 @@
       SM.saveEntries(entries);
       SM.setSince(since);
       renderAll();
+      renderQr();
       publishMeta();
       publishRecords();
       reply({
@@ -865,6 +873,7 @@
         SM.saveRound(round);
         $("result").hidden = true;
         renderAll();
+        renderQr();
         publishMeta();
         changed();
         poll(true);

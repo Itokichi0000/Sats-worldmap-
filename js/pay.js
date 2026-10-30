@@ -17,6 +17,82 @@
 
   const username = SM.username();
 
+  // ── いまの会場（スクリーンが Nostr に出した記録を読む。QR の URL に k・s があるとき） ──
+  const q = new URLSearchParams(location.search);
+  let live = null;     // Map<取引 id, 記録>
+  let mine = null;     // { hash, key, before: { rank, sats } }
+
+  function summarize(items) {
+    const a = { sats: 0, count: 0, jp: 0, world: 0, byRegion: new Map(), prefs: new Set() };
+    items.forEach((c) => {
+      a.sats += c.sats;
+      a.count += 1;
+      const r = SM.regionByKey(c.r);
+      if (!r) return;
+      a.byRegion.set(c.r, (a.byRegion.get(c.r) || 0) + c.sats);
+      if (r.type === "jp_prefecture") { a.prefs.add(r.code); a.jp += c.sats; }
+      else if (r.code === "JP") a.jp += c.sats;
+      else a.world += c.sats;
+    });
+    a.ranked = [...a.byRegion.entries()].sort((x, y) => y[1] - x[1]);
+    return a;
+  }
+  function rankOf(a, key) {
+    const i = a.ranked.findIndex(([k]) => k === key);
+    return i < 0 ? { rank: 0, sats: 0 } : { rank: i + 1, sats: a.ranked[i][1] };
+  }
+
+  function startLive() {
+    const k = q.get("k");
+    const session = q.get("s");
+    if (!window.SM.records || !window.NostrTools || !k || !/^[a-z0-9]{6,32}$/.test(session || "")) return;
+    let pk;
+    try { pk = SM.records.parsePubkey(k); } catch (e) { return; }
+    if (q.get("rl")) SM.records.setRelays(q.get("rl").split(","));
+    SM.records.watch(session, pk, (items) => {
+      live = items;
+      renderLive();
+    });
+  }
+
+  function renderLive() {
+    if (!live) return;
+    const a = summarize(live);
+    $("live").hidden = false;
+    $("live-sats").textContent = SM.fmt(a.sats);
+    $("live-sub").textContent = `${SM.fmt(a.count)} 投 · 都道府県 ${a.prefs.size}/47`;
+    $("live-jp").textContent = SM.fmt(a.jp);
+    $("live-world").textContent = SM.fmt(a.world);
+    const total = a.jp + a.world;
+    $("live-fill").style.width = `${total ? Math.max(4, Math.min(96, (a.jp / total) * 100)) : 50}%`;
+    const medal = ["🥇", "🥈", "🥉"];
+    $("live-rank").innerHTML = a.ranked.length
+      ? a.ranked.slice(0, 3).map(([k, v], i) => {
+        const r = SM.regionByKey(k);
+        return `<li><span>${medal[i]} ${r.flag} ${SM.esc(r.name)}</span><b>${SM.fmt(v)}</b></li>`;
+      }).join("")
+      : `<li class="empty">まだだれも投げていません。最初の 1 投をどうぞ ⚡</li>`;
+    // まだだれも投げていない県に ★
+    document.querySelectorAll(".pref").forEach((b) => b.classList.toggle("fresh", !a.prefs.has(b.dataset.key.split(":")[1])));
+    $("fresh-note").hidden = a.prefs.size >= SM.PREF_COUNT;
+    // 自分の 1 投が記録に出たら、順位を出す
+    if (mine && !$("done").hidden) {
+      const hit = [...live.values()].some((c) => c.hash && c.hash === mine.hash);
+      if (hit) {
+        const now = rankOf(a, mine.key);
+        const r = SM.regionByKey(mine.key);
+        const name = `${r.flag} <b>${SM.esc(r.name)}</b>`;
+        let text;
+        if (!mine.before.rank) text = `🎉 ${name} を初制覇！ いま <b>${now.rank} 位</b>`;
+        else if (now.rank < mine.before.rank) text = `🚀 ${name} が <b>${mine.before.rank} 位 → ${now.rank} 位</b> に！`;
+        else text = `${name} はいま <b>${now.rank} 位</b>（${SM.fmt(now.sats)} sats）`;
+        $("done-rank").innerHTML = text;
+        $("done-rank").hidden = false;
+        mine = null;
+      }
+    }
+  }
+
   function remember() {
     try {
       localStorage.setItem(REMEMBER, JSON.stringify({ r: region && SM.regionKey(region), nick: $("nick").value }));
@@ -147,6 +223,7 @@
     try {
       const memo = SM.memo.encode({ region, nick: $("nick").value, msg: $("msg").value });
       invoice = await SM.blink.createInvoice(username, amount, memo);
+      mine = live ? { hash: invoice.paymentHash, key: SM.regionKey(region), before: rankOf(summarize(live), SM.regionKey(region)) } : null;
       showInvoice();
     } catch (e) {
       fail(e.message || "インボイスを作れませんでした");
@@ -194,6 +271,8 @@
     $("invoice").hidden = true;
     $("done").hidden = false;
     $("done-text").innerHTML = `${region.flag} ${SM.esc(region.name)} に ${SM.fmt(amount)} sats。<br>スクリーンを見てください 👀`;
+    $("done-rank").hidden = true;
+    renderLive();
     if (navigator.vibrate) navigator.vibrate([30, 60, 30]);
   }
 
@@ -213,6 +292,7 @@
     buildRegions();
     buildAmounts();
     recall();
+    startLive();
     $("msg").addEventListener("input", (e) => { $("msg-count").textContent = `${[...e.target.value].length} / ${SM.MSG_MAX}`; });
     $("form").addEventListener("submit", submit);
     $("copy-inv").addEventListener("click", async () => {

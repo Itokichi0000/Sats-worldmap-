@@ -144,7 +144,13 @@ try {
   await mockBlink(phoneCtx);
   const phone = await phoneCtx.newPage();
   watch(phone, "phone");
-  await phone.goto(`${base}/pay.html?u=satsmap`);
+  // スクリーンの QR と同じ URL で開く
+  const payUrl = "http://" + (await screen.locator("#pay-url").textContent());
+  ok(/[?&]k=npub1/.test(payUrl) && /[?&]s=[a-z0-9]{6,}/.test(payUrl), "QR の URL に記録の鍵とイベントが入る");
+  await phone.goto(payUrl);
+  await phone.waitForSelector("#live:not([hidden])", { timeout: 8000 });
+  ok(/まだだれも投げていません/.test(await phone.locator("#live-rank").textContent()), "支払いページに「いまの会場」が出る");
+  ok((await phone.locator(".pref.fresh").count()) === 47, "まだだれも投げていない県に ★ が付く");
   await phone.click("#go");
   ok(/地域を選んで/.test(await phone.locator("#form-error").textContent()), "地域を選ばずに押すと、わけを出す");
   await phone.click('.pref[data-key="jp_prefecture:JP-13"]');
@@ -162,6 +168,8 @@ try {
   blink.pay(0);
   await phone.waitForSelector("#done:not([hidden])", { timeout: 6000 });
   ok(true, "払うと「届きました」になる");
+  await phone.waitForSelector("#done-rank:not([hidden])", { timeout: 15000 });
+  ok(/東京都.*初制覇.*1 位/.test(await phone.locator("#done-rank").textContent()), "自分の 1 投がスクリーンに出ると、スマホに「初制覇・1 位」が出る");
   await shot(phone, "4-pay-done");
 
   await screen.waitForFunction(() => document.getElementById("stat-total-sats").textContent === "2,100", null, { timeout: 12000 });
@@ -198,6 +206,10 @@ try {
   }
   await screen.waitForFunction(() => document.getElementById("stat-total-sats").textContent === "23,121", null, { timeout: 20000 });
   ok(true, "続けて投げても順に数に入る");
+  await phone.waitForFunction(() => document.getElementById("live-sats").textContent === "23,121", null, { timeout: 15000 });
+  ok((await phone.locator("#live-rank li").first().textContent()).includes("エルサルバドル"), "スマホの「いまの会場」も更新され、1 位が入れかわる");
+  ok((await phone.locator(".pref.fresh").count()) === 46, "投げた県の ★ が消える");
+  await shot(phone, "4b-pay-live");
   await screen.waitForTimeout(300);
   await shot(screen, "6-whale");
   const feed = await screen.locator("#latest-feed").innerHTML();

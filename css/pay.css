@@ -109,6 +109,32 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(247,147,26
 
 .pay-foot { margin-top: 22px; font-size: 11.5px; color: var(--text-2); text-align: center; line-height: 1.7; }
 
+/* いまの会場（Nostr の記録から） */
+#live { background: var(--bg-1); border: 1px solid var(--border); border-radius: 18px; padding: 12px 14px; margin-bottom: 14px; }
+.live-top { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--text-1); font-weight: 700; }
+.live-top b { font-family: var(--mono); font-size: 22px; color: var(--accent-2); margin-left: 4px; }
+.live-top small { color: var(--text-2); }
+.live-sub { margin-left: auto; color: var(--text-2); font-weight: 600; font-size: 12px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); align-self: center; animation: pulse 1.6s ease-in-out infinite; }
+.live-tug { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin: 8px 0 6px; font-size: 13px; }
+.live-tug b { font-family: var(--mono); }
+.live-tug .jp b { color: #ff7a8a; }
+.live-tug .world b { color: #6cc4ff; }
+.live-bar { height: 8px; border-radius: 6px; background: linear-gradient(90deg, #1a3a66, #3aa0ff); overflow: hidden; }
+.live-fill { height: 100%; width: 50%; background: linear-gradient(90deg, #ff3b5c, #ff8a5c); transition: width 0.8s; }
+.live-rank { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.live-rank li { display: flex; justify-content: space-between; gap: 8px; }
+.live-rank li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-rank li b { font-family: var(--mono); color: var(--accent-2); }
+.live-rank .empty { color: var(--text-2); font-size: 13px; }
+.pref { position: relative; }
+.pref.fresh::after {
+  content: "★"; position: absolute; top: 3px; right: 5px; font-size: 10px; color: var(--accent-2);
+}
+.fresh-note { color: var(--accent-2); font-weight: 700; }
+.done-rank { margin-top: 4px; font-size: 18px; font-weight: 800; color: var(--text-0); line-height: 1.5; }
+.done-rank b { color: var(--accent-2); }
+
 @media (min-width: 480px) {
   .amounts { grid-template-columns: repeat(4, 1fr); }
   .pref-grid { grid-template-columns: repeat(6, 1fr); }

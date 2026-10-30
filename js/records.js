@@ -25,7 +25,9 @@ window.SM = window.SM || {};
   let pool = null;
   const getPool = () => (pool = pool || new (NT().SimplePool)());
 
+  let override = null; // 支払いページ：QR の URL で渡されたリレー
   function relays() {
+    if (override) return override;
     const fromSettings = SM.settings ? SM.settings().recordRelays : null;
     const cfg = (window.SATS_CONFIG && window.SATS_CONFIG.recordRelays) || DEFAULT_RELAYS;
     const list = Array.isArray(fromSettings) && fromSettings.length ? fromSettings : cfg;
@@ -172,6 +174,38 @@ window.SM = window.SM || {};
     return [...seen.values()].sort((a, b) => b.created_at - a.created_at);
   }
 
+  /**
+   * 記録を見続ける（支払いページの「いまの会場」）。届くたびに onUpdate(Map<取引 id, 記録>) を呼ぶ。
+   * 返り値で止める。
+   */
+  function watch(session, pk, onUpdate) {
+    const latest = new Map(); // d -> event
+    const items = new Map();
+    let timer = 0;
+    const flush = () => { timer = 0; onUpdate(new Map(items)); };
+    const sub = getPool().subscribeMany(relays(), { kinds: [KIND], authors: [pk], "#t": [`satsmap-${session}`], limit: 5000 }, {
+      onevent(ev) {
+        if (ev.pubkey !== pk) return;
+        const d = (ev.tags.find((t) => t[0] === "d") || [])[1];
+        if (!d || !d.startsWith(`${session}:`) || d.endsWith(":meta")) return;
+        const prev = latest.get(d);
+        if (prev && prev.created_at >= ev.created_at) return;
+        let c;
+        try { c = JSON.parse(ev.content); } catch (e) { return; }
+        if (!c || c.v !== 1 || typeof c.id !== "string" || !Number.isFinite(c.sats) || c.sats <= 0) return;
+        latest.set(d, ev);
+        items.set(c.id, c);
+        if (!timer) timer = setTimeout(flush, 250);
+      },
+      oneose() { if (!timer) flush(); },
+    });
+    return () => { clearTimeout(timer); sub.close(); };
+  }
+  function setRelays(list) {
+    const ok = (list || []).map((u) => String(u).trim()).filter(isRelayUrl).slice(0, 12);
+    override = ok.length ? ok : null;
+  }
+
   function status() {
     if (!pool) return [];
     return [...pool.listConnectionStatus().entries()];
@@ -179,6 +213,6 @@ window.SM = window.SM || {};
 
   SM.records = {
     KIND, DEFAULT_RELAYS, relays, isRelayUrl, ensureKey, pubkey, npub, exportNsec, importNsec, parsePubkey,
-    publishEntry, publishMeta, fetchAll, fetchSessions, status,
+    publishEntry, publishMeta, fetchAll, fetchSessions, watch, setRelays, status,
   };
 })(window.SM);

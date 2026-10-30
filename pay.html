@@ -22,6 +22,20 @@
     </div>
   </header>
 
+  <section id="live" hidden aria-live="polite">
+    <div class="live-top">
+      <span class="live-dot"></span> いまの会場
+      <b id="live-sats">0</b><small>sats</small>
+      <span class="live-sub" id="live-sub"></span>
+    </div>
+    <div class="live-tug">
+      <span class="jp">🗾 <b id="live-jp">0</b></span>
+      <div class="live-bar"><div class="live-fill" id="live-fill"></div></div>
+      <span class="world"><b id="live-world">0</b> 🌍</span>
+    </div>
+    <ol class="live-rank" id="live-rank"></ol>
+  </section>
+
   <form id="form" novalidate>
     <section class="step">
       <h2><span class="num">1</span> どこを灯す？</h2>
@@ -37,6 +51,7 @@
         <input type="search" id="country-search" placeholder="国の名前でさがす（例：アメリカ, El Salvador）" autocomplete="off">
         <div class="country-list" id="country-list"></div>
       </div>
+      <p class="hint fresh-note" id="fresh-note" hidden>★ はまだだれも投げていない県。最初の 1 投で「初制覇」！</p>
       <div class="picked" id="picked">まだ選んでいません</div>
     </section>
 
@@ -82,6 +97,7 @@
     <div class="done-burst">⚡</div>
     <h2>届きました！</h2>
     <p id="done-text">スクリーンを見てください 👀</p>
+    <p class="done-rank" id="done-rank" hidden></p>
     <button type="button" class="go" id="again"><i class="fa-solid fa-rotate-right"></i> もう一回投げる</button>
   </section>
 
@@ -95,7 +111,9 @@
 <script src="js/config.js"></script>
 <script src="js/countries.js"></script>
 <script src="js/common.js"></script>
+<script src="vendor/nostr/nostr.js"></script>
 <script src="js/blink.js"></script>
+<script src="js/records.js"></script>
 <script src="js/pay.js"></script>
 </body>
 </html>
