@@ -112,6 +112,10 @@ npm run deploy
 2. 署名の確認が 2 回出るので承認する（ファイルを Blossom に置く許可 kind 24242、サイトの一覧 kind 35128）
 3. 出た URL を開く
 
+いま公開しているもの（2026-10-31）：
+スクリーン https://0alv7lzdlnag1g30cf2vu7nwn9zohoftnmhwp4x5zarcdqpvq3satsmap.nsite.lol/ ・ 支払いページ …/pay.html ・ 管理画面 …/admin.html
+（ファイルは blossom.primal.net に置いた。blossom.band は HTML・JS・フォントを、cdn.satellite.earth は有料の人以外を断る）
+
 NIP-5A の**名前つきサイト**（kind 35128、`d=satsmap`）として上げるので、同じ npub のいちばん上のサイト（kind 15128）は上書きしません。
 開く場所は `https://<公開鍵の 36 進数 50 桁>satsmap.nsite.lol/`（最後に上げたときの URL は `.nsite/last-deploy.json`）。
 スクリーン・`/admin.html`・`/pay.html` が開けます。置き場所（リレー・Blossom サーバー）は `.nsite/config.json`。

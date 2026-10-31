@@ -202,6 +202,7 @@ if (process.env.SATSMAP_DRY_RUN) {
 const placed = new Map(files.map((f) => [f.hash, new Set()]));
 for (const server of SERVERS) {
   let ok = 0;
+  const reasons = new Map();
   for (const f of files) {
     const url = `${server.replace(/\/$/, "")}/${f.hash}`;
     try {
@@ -218,10 +219,11 @@ for (const server of SERVERS) {
       placed.get(f.hash).add(server);
       ok++;
     } catch (e) {
-      log(`  ✗ ${server} ${f.path}：${e.message}`);
+      reasons.set(e.message, (reasons.get(e.message) || 0) + 1);
     }
   }
-  log(`  ${server}：${ok} / ${files.length}`);
+  // 断られたわけはファイルごとでなく、わけごとにまとめて出す（有料・種類の制限のあるサーバーがある）
+  log(`  ${server}：${ok} / ${files.length}${reasons.size ? `（置けなかったわけ：${[...reasons].map(([m, n]) => `${m.slice(0, 80)} ×${n}`).join(" / ")}）` : ""}`);
 }
 const missing = files.filter((f) => placed.get(f.hash).size === 0);
 if (missing.length) throw new Error(`どの Blossom サーバーにも置けなかったファイルがあります：${missing.map((f) => f.path).join(", ")}`);
