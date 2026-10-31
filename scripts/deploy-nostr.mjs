@@ -54,6 +54,9 @@ const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 class NodeWebSocket extends WebSocket {
   constructor(url, protocols) {
     super(url, protocols, agent ? { agent } : {});
+    // つながる前に閉じられると ws は 'error' を出す。聞き手がないとプロセスごと止まるので受けておく
+    // （nostr-tools は onerror・onclose で、そのリレーだけをつながらなかったものとして扱う）
+    this.on("error", () => {});
   }
 }
 useWebSocketImplementation(NodeWebSocket);
