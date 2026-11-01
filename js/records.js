@@ -130,6 +130,14 @@ window.SM = window.SM || {};
     return send(sign("meta", session, { v: 1, kind: "meta", ...meta }));
   }
 
+  /** いまのお題（スマホの支払いページに出す） */
+  function publishMission(m, session) {
+    return send(sign("mission", session, {
+      v: 1, kind: "mission",
+      type: m.type, params: m.params || {}, startedAt: m.startedAt, endsAt: m.endsAt, state: m.state, by: m.by || "", no: m.no || 0,
+    }));
+  }
+
   /**
    * そのイベント（session）の記録をリレーから読む。
    * 返り値：{ entries: Map<取引 id, 記録>, meta: 全体 | null, relaysAnswered }
@@ -178,7 +186,7 @@ window.SM = window.SM || {};
    * 記録を見続ける（支払いページの「いまの会場」）。届くたびに onUpdate(Map<取引 id, 記録>) を呼ぶ。
    * 返り値で止める。
    */
-  function watch(session, pk, onUpdate) {
+  function watch(session, pk, onUpdate, onMission) {
     const latest = new Map(); // d -> event
     const items = new Map();
     let timer = 0;
@@ -192,6 +200,11 @@ window.SM = window.SM || {};
         if (prev && prev.created_at >= ev.created_at) return;
         let c;
         try { c = JSON.parse(ev.content); } catch (e) { return; }
+        if (d === `${session}:mission`) {
+          latest.set(d, ev);
+          if (c && c.v === 1 && onMission) onMission(c);
+          return;
+        }
         if (!c || c.v !== 1 || typeof c.id !== "string" || !Number.isFinite(c.sats) || c.sats <= 0) return;
         latest.set(d, ev);
         items.set(c.id, c);
@@ -213,6 +226,6 @@ window.SM = window.SM || {};
 
   SM.records = {
     KIND, DEFAULT_RELAYS, relays, isRelayUrl, ensureKey, pubkey, npub, exportNsec, importNsec, parsePubkey,
-    publishEntry, publishMeta, fetchAll, fetchSessions, watch, setRelays, status,
+    publishEntry, publishMeta, publishMission, fetchAll, fetchSessions, watch, setRelays, status,
   };
 })(window.SM);

@@ -58,7 +58,23 @@
       <button class="btn primary" id="round-start"><i class="fa-solid fa-play"></i> ラウンドを始める</button>
       <button class="btn" id="round-end"><i class="fa-solid fa-stop"></i> いま終える（結果を出す）</button>
     </div>
-    <p class="note">スクリーンでスペースキーを押しても、始める・終えるができます。</p>
+    <p class="note">スクリーンでスペースキーを押しても、始める・終えるができます。最後の 60 秒は「ラストスパート」で演出が 1 段強くなります。</p>
+    <label class="check"><input type="checkbox" id="fever"> 最後の 60 秒をラストスパートにする</label>
+  </section>
+
+  <section class="card">
+    <h2><i class="fa-solid fa-bullseye"></i> お題・王様</h2>
+    <p class="note">
+      お題：数分ごとに「まだだれも投げていない県を灯せ」「九州の県に 3 投」などが出て、だれかが達成すると「MISSION CLEAR」と名前が出ます。スマホの支払いページにも出ます。<br>
+      王様：その地域にいちばん多く投げたニックネームが「王様」。抜かれると「王座交代！」。スマホでは王座を奪うのに要る額が出ます。（景品はありません。名誉だけです）
+    </p>
+    <label class="check"><input type="checkbox" id="missions"> お題を出す</label>
+    <div class="grid2">
+      <label>1 つのお題の時間（分）<input id="missionMinutes" type="number" min="1" max="60"></label>
+    </div>
+    <div class="row">
+      <button class="btn" id="mission-next"><i class="fa-solid fa-forward"></i> 次のお題へ</button>
+    </div>
   </section>
 
   <section class="card">

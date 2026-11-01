@@ -13,6 +13,7 @@
  */
 const SatsMap = (() => {
   const maps = {}; // regionType -> { root, chart, series, el }
+  const kings = { country: {}, jp_prefecture: {} }; // 地域 -> 王様のニックネーム
 
   function build(divId, geo, opts) {
     const root = am5.Root.new(divId);
@@ -52,7 +53,10 @@ const SatsMap = (() => {
       const di = target.dataItem;
       if (!di) return text;
       const v = di.get("value") || 0;
-      return v > 0 ? `{name}\n${v.toLocaleString("en-US")} sats` : "{name}\nまだ 0 sats";
+      const king = kings[opts.type] && kings[opts.type][di.get("id")];
+      // 地図の文字は amCharts の書式として読まれるので、[ ] { } を取る
+      const k = king ? `\n👑 ${String(king).replace(/[\[\]{}]/g, "")}` : "";
+      return v > 0 ? `{name}\n${v.toLocaleString("en-US")} sats${k}` : "{name}\nまだ 0 sats";
     });
     chart.set("zoomControl", am5map.ZoomControl.new(root, {}));
     // 形が決まってから日本に合わせる（1 回だけ。毎回だと、色を変えるたびに寄った地図が戻る）
@@ -65,10 +69,10 @@ const SatsMap = (() => {
 
   function init() {
     maps.country = build("worldMapDiv", am5geodata_worldLow, {
-      panX: "rotateX", projection: am5map.geoNaturalEarth1(), maxZoom: 16,
+      panX: "rotateX", projection: am5map.geoNaturalEarth1(), maxZoom: 16, type: "country",
     });
     maps.jp_prefecture = build("japanMapDiv", am5geodata_japanLow, {
-      panX: "translateX", projection: am5map.geoMercator(), maxZoom: 10, fitOnLoad: true,
+      panX: "translateX", projection: am5map.geoMercator(), maxZoom: 10, fitOnLoad: true, type: "jp_prefecture",
     });
   }
 
@@ -147,5 +151,9 @@ const SatsMap = (() => {
     });
   }
 
-  return { init, setTotals, pulse, zoomTo, home, screenPoint, resize };
+  function setKings(regionType, map) {
+    kings[regionType] = map || {};
+  }
+
+  return { init, setTotals, setKings, pulse, zoomTo, home, screenPoint, resize };
 })();

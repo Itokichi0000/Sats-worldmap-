@@ -69,11 +69,19 @@ window.SM = window.SM || {};
       p.vy *= p.drag;
       p.x += p.vx;
       p.y += p.vy;
-      if (p.kind === "confetti") p.rot += p.vr;
+      if (p.kind === "confetti" || p.kind === "emoji") p.rot += p.vr;
       const a = Math.max(0, Math.min(1, p.life / (p.max * 0.4)));
       ctx.globalAlpha = a;
       ctx.fillStyle = p.color;
-      if (p.kind === "confetti") {
+      if (p.kind === "emoji") {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.font = `${p.size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(p.text, 0, 0);
+        ctx.restore();
+      } else if (p.kind === "confetti") {
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
@@ -176,16 +184,63 @@ window.SM = window.SM || {};
       void el.offsetWidth;
       el.classList.add("shake");
     },
-    /** kind: "info" | "big" | "whale" | "goal" */
+    /**
+     * 真ん中の大きな札。kind: "info" | "big" | "whale" | "goal" | "king" | "mission"
+     * 重ならないよう 1 つずつ順に出す（クジラは先に）。待ちが多いときは短くする
+     */
     banner(html, kind = "info", ms = 2600) {
-      const el = document.createElement("div");
-      el.className = `fx-banner fx-${kind}`;
-      el.innerHTML = html;
-      document.body.appendChild(el);
-      setTimeout(() => el.classList.add("out"), ms);
-      setTimeout(() => el.remove(), ms + 600);
+      const item = { html, kind, ms };
+      if (kind === "whale") bannerQueue.unshift(item);
+      else bannerQueue.push(item);
+      // 古い札は捨てる（演出が何十秒も遅れないように）
+      while (bannerQueue.length > 6) bannerQueue.splice(bannerQueue.findIndex((b) => b.kind !== "whale"), 1);
+      log.push(String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+      if (log.length > 100) log.shift();
+      if (!bannerBusy) nextBanner();
+    },
+    /** その地域の名物の絵文字を、上から降らせる */
+    rain(emoji, n = 20) {
+      ensure();
+      const count = reduce ? Math.min(6, n) : n;
+      for (let i = 0; i < count; i++) {
+        parts.push({
+          x: Math.random() * innerWidth,
+          y: -40 - Math.random() * innerHeight * 0.6,
+          vx: (Math.random() - 0.5) * 1.2,
+          vy: 2.5 + Math.random() * 3,
+          life: 320,
+          max: 320,
+          color: "#fff",
+          size: 26 + Math.random() * 22,
+          g: 0.03,
+          drag: 0.995,
+          kind: "emoji",
+          text: emoji,
+          rot: (Math.random() - 0.5) * 0.6,
+          vr: (Math.random() - 0.5) * 0.05,
+        });
+      }
+      kick();
     },
   };
+
+  const bannerQueue = [];
+  let bannerBusy = false;
+  const log = [];
+  window.__satsmapBanners = log; // 自動の確認が、どの札が出たかを見る
+  function nextBanner() {
+    const item = bannerQueue.shift();
+    if (!item) { bannerBusy = false; return; }
+    bannerBusy = true;
+    const ms = bannerQueue.length >= 2 ? Math.min(item.ms, 1600) : item.ms;
+    const el = document.createElement("div");
+    el.className = `fx-banner fx-${item.kind}`;
+    el.innerHTML = item.html;
+    document.body.appendChild(el);
+    setTimeout(() => el.classList.add("out"), ms);
+    setTimeout(() => el.remove(), ms + 600);
+    setTimeout(nextBanner, ms + 250);
+  }
 
   // ── 効果音（WebAudio で作る） ────────────────────────────────
   let ac = null;

@@ -34,6 +34,11 @@
       <span class="world"><b id="live-world">0</b> 🌍</span>
     </div>
     <ol class="live-rank" id="live-rank"></ol>
+    <div class="live-mission" id="live-mission" hidden>
+      <span class="lm-label">🎯 いまのお題</span>
+      <span class="lm-text" id="lm-text"></span>
+      <span class="lm-state" id="lm-state"></span>
+    </div>
   </section>
 
   <form id="form" novalidate>
@@ -53,6 +58,7 @@
       </div>
       <p class="hint fresh-note" id="fresh-note" hidden>★ はまだだれも投げていない県。最初の 1 投で「初制覇」！</p>
       <div class="picked" id="picked">まだ選んでいません</div>
+      <div class="king" id="king" hidden></div>
     </section>
 
     <section class="step">
@@ -114,6 +120,7 @@
 <script src="vendor/nostr/nostr.js"></script>
 <script src="js/blink.js"></script>
 <script src="js/records.js"></script>
+<script src="js/game.js"></script>
 <script src="js/pay.js"></script>
 </body>
 </html>

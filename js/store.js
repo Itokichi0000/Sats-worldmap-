@@ -14,6 +14,7 @@ window.SM = window.SM || {};
     round: "satsmap.round.v1",
     since: "satsmap.since.v1",
     session: "satsmap.session.v1",
+    mission: "satsmap.mission.v1",
   };
 
   const DEFAULTS = {
@@ -30,6 +31,9 @@ window.SM = window.SM || {};
     ngWords: [],
     countAll: false,   // SatsMap のメモがない入金（Lightning アドレスへ直接など）も数える
     pollSec: 4,
+    missions: true,    // 数分ごとのお題
+    missionMinutes: 4,
+    fever: true,       // ラウンドの最後の 60 秒は演出を 1 段強く
     record: true,      // 1 投ごとの記録を Nostr リレーに出す
     recordRelays: [],  // 空なら js/config.js（なければ records.js の既定）
   };
@@ -46,15 +50,21 @@ window.SM = window.SM || {};
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* いっぱい・使えない */ }
   }
 
-  SM.settings = () => ({ ...DEFAULTS, ...read(K.settings, {}) });
+  // ほかのタブ（管理画面）で変えた設定は、知らせ（SM.bus）に中身を載せて送る。
+  // ブラウザはタブのあいだの localStorage を少し遅れて同じにするので、知らせのあとに読むと古いことがある
+  let latestSettings = null;
+  let latestKey = null;
+  SM.settings = () => ({ ...DEFAULTS, ...(latestSettings || read(K.settings, {})) });
   SM.saveSettings = (patch) => {
     const next = { ...SM.settings(), ...patch };
     write(K.settings, next);
-    SM.bus.post({ type: "settings" });
+    latestSettings = next;
+    SM.bus.post({ type: "settings", settings: next });
     return next;
   };
 
   SM.apiKey = () => {
+    if (latestKey !== null) return latestKey;
     try { return localStorage.getItem(K.apiKey) || ""; } catch (e) { return ""; }
   };
   SM.saveApiKey = (key) => {
@@ -62,7 +72,8 @@ window.SM = window.SM || {};
       if (key) localStorage.setItem(K.apiKey, key);
       else localStorage.removeItem(K.apiKey);
     } catch (e) { /* 使えない */ }
-    SM.bus.post({ type: "settings" });
+    latestKey = key || "";
+    SM.bus.post({ type: "settings", apiKey: latestKey });
   };
 
   // entries: { id, at（ミリ秒）, sats, r（"type:code" か null）, n, m, hidden, test, round }
@@ -75,6 +86,10 @@ window.SM = window.SM || {};
   // round: { no, startedAt, endsAt, goal, state: "idle" | "running" | "done" }
   SM.round = () => read(K.round, { no: 0, startedAt: 0, endsAt: 0, goal: DEFAULTS.roundGoal, state: "idle" });
   SM.saveRound = (r) => write(K.round, r);
+
+  // いまのお題：{ type, params, startedAt, endsAt, state: "active" | "clear" | "fail", by, no }
+  SM.mission = () => read(K.mission, null);
+  SM.saveMission = (m) => write(K.mission, m);
 
   /** これより前（秒）の入金は数えない。イベントを始めたとき */
   SM.since = () => {
@@ -113,7 +128,21 @@ window.SM = window.SM || {};
   const listeners = new Set();
   let channel = null;
   try { channel = new BroadcastChannel("satsmap"); } catch (e) { channel = null; }
-  if (channel) channel.onmessage = (ev) => listeners.forEach((fn) => fn(ev.data));
+  if (channel) {
+    channel.onmessage = (ev) => {
+      const m = ev.data;
+      if (m && m.type === "settings") {
+        if (m.settings && typeof m.settings === "object") latestSettings = m.settings;
+        if (typeof m.apiKey === "string") latestKey = m.apiKey;
+      }
+      listeners.forEach((fn) => fn(m));
+    };
+  }
+  // 別のタブが localStorage を変えて、それがここに届いたら、そちらを読む
+  addEventListener("storage", (ev) => {
+    if (ev.key === K.settings) latestSettings = null;
+    if (ev.key === K.apiKey) latestKey = null;
+  });
   SM.bus = {
     post(msg) { if (channel) channel.postMessage(msg); },
     on(fn) { listeners.add(fn); return () => listeners.delete(fn); },

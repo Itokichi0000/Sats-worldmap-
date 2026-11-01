@@ -137,7 +137,8 @@ try {
   await screen.waitForFunction(() => document.getElementById("status-chip").textContent === "● LIVE", null, { timeout: 8000 });
   ok(true, "キーを入れるとスクリーンが LIVE になる");
   ok((await screen.locator("#stat-total-sats").textContent()) === "0", "やり直すと 0 に戻る");
-  ok(await screen.locator("#pay-url").textContent().then((t) => t.includes("pay.html?u=satsmap")), "スクリーンの QR が支払いページを指す");
+  const qrText = await screen.locator("#pay-url").textContent();
+  ok(qrText.includes("pay.html?u=satsmap"), `スクリーンの QR が支払いページを指す${qrText.includes("pay.html?u=satsmap") ? "" : `（${qrText}）`}`);
 
   // 3. スマホで投げる
   const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -183,6 +184,8 @@ try {
   ok(b && jp && b.x + b.width / 2 > jp.x && b.x + b.width / 2 < jp.x + jp.width, "吹き出しが日本地図の上に出る");
   await shot(screen, "5-screen-paid");
   ok((await screen.locator("#latest-feed").textContent()).includes("ましゅ"), "最新の一覧に名前が出る");
+  await screen.waitForFunction(() => /初代王様/.test((window.__satsmapBanners || []).join(" ")), null, { timeout: 10000 }).catch(() => {});
+  ok(/初代王様.*ましゅ/.test(await screen.evaluate(() => (window.__satsmapBanners || []).join(" | "))), "はじめて投げた人が、その地域の「初代王様」になる");
 
   // 4. ラウンド・NG ワード・HTML を書いた名前
   await admin.click("#round-start");
@@ -251,13 +254,14 @@ try {
   // 5. Nostr の記録
   await screen.waitForTimeout(2500);
   const latest = new Map();
-  relay.events.filter((e) => e.kind === 30078).forEach((e) => {
+  const session = await screen.evaluate(() => SM.session());
+  // やり直す前のイベント（お題など）は除いて、いまのイベントの記録だけを見る
+  relay.events.filter((e) => e.kind === 30078 && e.tags.some((t) => t[0] === "t" && t[1] === `satsmap-${session}`)).forEach((e) => {
     const d = e.tags.find((t) => t[0] === "d")[1];
     if (!latest.has(d) || latest.get(d).created_at < e.created_at) latest.set(d, e);
   });
   const recs = [...latest.values()].map((e) => JSON.parse(e.content));
   const items = recs.filter((c) => c.id);
-  const session = await screen.evaluate(() => SM.session());
   ok(items.length === 3 && items.reduce((a, c) => a + c.sats, 0) === 23121, "本物の 3 投が Nostr に記録される（テストの 1 投は出さない）");
   ok([...latest.keys()].every((d) => d.startsWith(`${session}:`)), "記録の d タグがイベントごとに分かれる");
   const tokyo = items.find((c) => c.r === "jp_prefecture:JP-13");
@@ -307,9 +311,71 @@ try {
   await shot(admin2, "9-rebuild");
   await ctx2.close();
 
+  // 7. 遊び：王様・お題・地方対抗・ラストスパート
+  await screen.setViewportSize({ width: 1920, height: 1080 });
+  const banners = () => screen.evaluate(() => (window.__satsmapBanners || []).join(" | "));
+  await admin.evaluate(() => SM.bus.post({ type: "mission-set", mission: { type: "zoro" } }));
+  await screen.waitForFunction(() => /ゾロ目/.test(document.getElementById("mission-text").textContent), null, { timeout: 5000 });
+  ok(true, "管理画面からお題を変えられ、スクリーンに出る");
+  await phone.waitForFunction(() => /ゾロ目/.test(document.getElementById("lm-text").textContent), null, { timeout: 10000 });
+  ok(true, "お題がスマホの支払いページにも出る");
+
+  // 王座を奪う
+  await phone.click("#again");
+  await phone.click('.seg-btn[data-tab="jp"]');
+  await phone.click('.pref[data-key="jp_prefecture:JP-13"]');
+  await phone.fill("#nick", "くじら");
+  await phone.waitForFunction(() => /王様：ましゅ/.test(document.getElementById("king").textContent), null, { timeout: 5000 });
+  const kingText = await phone.locator("#king").textContent();
+  ok(/あと 2,101 sats で王座を奪える/.test(kingText), "スマホに、いまの王様と王座までの額が出る");
+  await shot(phone, "10-pay-king");
+  await phone.click("#steal");
+  ok((await phone.locator("#custom-amount").inputValue()) === "2101", "「その額にする」で金額が入る");
+  await phone.fill("#msg", "");
+  await phone.click("#go");
+  await phone.waitForSelector("#invoice:not([hidden])");
+  blink.pay(blink.invoices.length - 1);
+  await phone.waitForSelector("#done:not([hidden])", { timeout: 6000 });
+  await screen.waitForFunction(() => /王座交代/.test((window.__satsmapBanners || []).join(" ")), null, { timeout: 15000 });
+  ok(/王座交代.*くじら.*ましゅ から奪った/.test(await banners()), "王様が抜かれると、スクリーンに「王座交代！」が出る");
+  await phone.waitForFunction(() => /王様<\/b>になりました/.test(document.getElementById("done-rank").innerHTML), null, { timeout: 15000 });
+  ok(true, "奪った人のスマホに「王様になりました」が出る");
+
+  // お題をクリア（ゾロ目）
+  await phone.click("#again");
+  await phone.click('.pref[data-key="jp_prefecture:JP-27"]');
+  await phone.fill("#custom-amount", "777");
+  await phone.click("#go");
+  await phone.waitForSelector("#invoice:not([hidden])");
+  blink.pay(blink.invoices.length - 1);
+  await screen.waitForFunction(() => document.getElementById("mission").classList.contains("clear"), null, { timeout: 20000 });
+  ok(/MISSION CLEAR.*くじら/.test(await banners()), "お題を達成すると「MISSION CLEAR」と、決めた人の名前が出る");
+  await phone.waitForFunction(() => /クリア/.test(document.getElementById("lm-state").textContent), null, { timeout: 10000 });
+  ok(true, "お題のクリアがスマホにも出る");
+  await shot(screen, "11-mission-clear");
+
+  // 地方対抗・王様のランキング
+  await screen.click('.rank-tab[data-rank="area"]');
+  const areaText = (await screen.locator("#ranking-list").textContent()).replace(/\s+/g, " ");
+  ok(/関東.*近畿|近畿.*関東/.test(areaText), `地方対抗のランキングが出る${/関東.*近畿|近畿.*関東/.test(areaText) ? "" : `（${areaText.replace(/\s+/g, " ")}）`}`);
+  await screen.click('.rank-tab[data-rank="king"]');
+  ok(/くじら/.test(await screen.locator("#ranking-list").textContent()), "王冠の数のランキングが出る");
+
+  // ラストスパート（残り 60 秒）
+  await admin.fill("#roundMinutes", "1");
+  await admin.click("#round-start");
+  await screen.waitForFunction(() => document.body.classList.contains("fever"), null, { timeout: 5000 });
+  ok(/ラストスパート/.test(await banners()), "ラウンドの最後の 60 秒は「ラストスパート」になる");
+  await shot(screen, "12-fever");
+  await admin.click("#round-end");
+  await screen.waitForFunction(() => !document.body.classList.contains("fever"), null, { timeout: 5000 });
+  const res2 = await screen.locator("#result").textContent();
+  ok(/地方対抗の勝者/.test(res2) && /王冠がいちばん多い人/.test(res2), "結果の画面に、地方対抗と王様が出る");
+
   ok(errors.length === 0, `画面のエラーなし${errors.length ? `：\n  ${errors.join("\n  ")}` : ""}`);
 } catch (e) {
   console.error(e);
+  if (errors.length) console.error("画面のエラー：\n  " + errors.join("\n  "));
   failed++;
 } finally {
   await browser.close();

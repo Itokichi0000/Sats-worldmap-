@@ -20,7 +20,9 @@
   // ── いまの会場（スクリーンが Nostr に出した記録を読む。QR の URL に k・s があるとき） ──
   const q = new URLSearchParams(location.search);
   let live = null;     // Map<取引 id, 記録>
-  let mine = null;     // { hash, key, before: { rank, sats } }
+  let mine = null;     // { hash, key, nick, before: { rank, sats } }
+  let liveMission = null;
+  const liveList = () => (live ? [...live.values()] : []);
 
   function summarize(items) {
     const a = { sats: 0, count: 0, jp: 0, world: 0, byRegion: new Map(), prefs: new Set() };
@@ -52,6 +54,54 @@
     SM.records.watch(session, pk, (items) => {
       live = items;
       renderLive();
+    }, (m) => {
+      liveMission = SM.missions.valid(m) ? m : null;
+      renderLiveMission();
+    });
+    setInterval(renderLiveMission, 1000);
+  }
+
+  // いまのお題（スクリーンが Nostr に出したもの）
+  function renderLiveMission() {
+    const box = $("live-mission");
+    if (!liveMission || !live) { box.hidden = true; return; }
+    box.hidden = false;
+    box.className = `live-mission ${liveMission.state}`;
+    $("lm-text").textContent = SM.missions.text(liveMission);
+    let state = "";
+    if (liveMission.state === "clear") state = `✓ クリア！ by ${SM.tidy(liveMission.by, SM.NICK_MAX)}`;
+    else if (liveMission.state === "fail") state = "時間切れ";
+    else {
+      const sec = Math.max(0, Math.ceil((liveMission.endsAt - Date.now()) / 1000));
+      state = `のこり ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    }
+    $("lm-state").textContent = state;
+  }
+
+  // 選んだ地域の王様と、王座までの額
+  function renderKing() {
+    const box = $("king");
+    if (!live || !region) { box.hidden = true; return; }
+    const key = SM.regionKey(region);
+    const list = liveList();
+    const king = SM.kings(list).get(key);
+    const me = SM.cleanNick($("nick").value);
+    box.hidden = false;
+    if (!king) {
+      box.innerHTML = `👑 ${SM.esc(region.name)} にはまだ王様がいません。<b>ニックネームを付けて投げれば初代王様！</b>`;
+      return;
+    }
+    if (me && king.nick === me) {
+      box.innerHTML = `👑 <b>あなたが ${SM.esc(region.name)} の王様</b>です（${SM.fmt(king.sats)} sats）。王座を守れ！`;
+      return;
+    }
+    const need = Math.max(1, king.sats - SM.sentTo(list, key, me) + 1);
+    box.innerHTML = `👑 王様：<b>${SM.esc(king.nick)}</b>（${SM.fmt(king.sats)} sats）<br>あと <b>${SM.fmt(need)} sats</b> で王座を奪える！${me ? "" : "（ニックネームが要ります）"}
+      <button type="button" class="steal" id="steal">${SM.fmt(need)} sats にする</button>`;
+    $("steal").addEventListener("click", () => {
+      $("custom-amount").value = need;
+      $("custom-amount").dispatchEvent(new Event("input"));
+      if (!me) $("nick").focus();
     });
   }
 
@@ -75,6 +125,8 @@
     // まだだれも投げていない県に ★
     document.querySelectorAll(".pref").forEach((b) => b.classList.toggle("fresh", !a.prefs.has(b.dataset.key.split(":")[1])));
     $("fresh-note").hidden = a.prefs.size >= SM.PREF_COUNT;
+    renderKing();
+    renderLiveMission();
     // 自分の 1 投が記録に出たら、順位を出す
     if (mine && !$("done").hidden) {
       const hit = [...live.values()].some((c) => c.hash && c.hash === mine.hash);
@@ -86,6 +138,8 @@
         if (!mine.before.rank) text = `🎉 ${name} を初制覇！ いま <b>${now.rank} 位</b>`;
         else if (now.rank < mine.before.rank) text = `🚀 ${name} が <b>${mine.before.rank} 位 → ${now.rank} 位</b> に！`;
         else text = `${name} はいま <b>${now.rank} 位</b>（${SM.fmt(now.sats)} sats）`;
+        const k = SM.kings(liveList()).get(mine.key);
+        if (k && mine.nick && k.nick === SM.cleanNick(mine.nick)) text += `<br>👑 <b>${SM.esc(r.name)} の王様</b>になりました！`;
         $("done-rank").innerHTML = text;
         $("done-rank").hidden = false;
         mine = null;
@@ -155,6 +209,7 @@
     markPicked();
     $("picked").innerHTML = `<b>${r.flag} ${SM.esc(r.name)}</b> を灯します`;
     $("picked").classList.add("on");
+    renderKing();
     updateGo();
     if (user && navigator.vibrate) navigator.vibrate(12);
   }
@@ -223,7 +278,7 @@
     try {
       const memo = SM.memo.encode({ region, nick: $("nick").value, msg: $("msg").value });
       invoice = await SM.blink.createInvoice(username, amount, memo);
-      mine = live ? { hash: invoice.paymentHash, key: SM.regionKey(region), before: rankOf(summarize(live), SM.regionKey(region)) } : null;
+      mine = live ? { hash: invoice.paymentHash, key: SM.regionKey(region), nick: $("nick").value, before: rankOf(summarize(live), SM.regionKey(region)) } : null;
       showInvoice();
     } catch (e) {
       fail(e.message || "インボイスを作れませんでした");
@@ -293,6 +348,7 @@
     buildAmounts();
     recall();
     startLive();
+    $("nick").addEventListener("input", renderKing);
     $("msg").addEventListener("input", (e) => { $("msg-count").textContent = `${[...e.target.value].length} / ${SM.MSG_MAX}`; });
     $("form").addEventListener("submit", submit);
     $("copy-inv").addEventListener("click", async () => {

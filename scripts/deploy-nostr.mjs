@@ -97,21 +97,25 @@ log(`  ${files.length} ファイル・${(files.reduce((s, f) => s + f.body.lengt
 // 切れたらつなぎ直す（会場・プロキシでは、黙っている WebSocket が切られることがある）
 const pool = new SimplePool({ enablePing: true, enableReconnect: true });
 let signer;
-// 出した nostrconnect:// を、やり直しても使えるように（1 日だけ）。秘密鍵ではなく、この接続のための使い捨ての鍵
+// 署名アプリとの接続を覚えておく（.nsite/client.json。秘密鍵ではなく、この接続のための使い捨ての鍵）
+//   - つながったことがあれば、次からは QR なしで署名アプリに頼む（30 日まで）
+//   - まだつながっていない nostrconnect:// は、1 時間だけ使い回す（承認を待つあいだにやり直したとき）
 await mkdir(OUT, { recursive: true });
 const clientFile = path.join(OUT, "client.json");
 let client = null;
 if (existsSync(clientFile)) {
   try {
     const c = JSON.parse(readFileSync(clientFile, "utf8"));
-    if (Date.now() / 1000 - c.at < 86400) client = c;
+    const age = Date.now() / 1000 - c.at;
+    if ((c.remote && age < 30 * 86400) || (!c.remote && age < 3600)) client = c;
   } catch { /* 作り直す */ }
 }
-if (!client) {
+const freshClient = async () => {
   client = { sk: bytesToHex(generateSecretKey()), secret: bytesToHex(generateSecretKey()).slice(0, 16), at: Math.floor(Date.now() / 1000) };
   await writeFile(clientFile, JSON.stringify(client), { mode: 0o600 });
-}
-const clientSk = hexToBytes(client.sk);
+};
+if (!client) await freshClient();
+let clientSk = hexToBytes(client.sk);
 
 /** nostrconnect:// の返事を待つ。切れたら since 付きで頼み直すので、切れているあいだの返事も拾える */
 function waitNostrConnect(relays, secret, ms) {
@@ -150,7 +154,21 @@ if (process.env.SATSMAP_BUNKER) {
   signer = BunkerSigner.fromBunker(clientSk, bp, { pool, timeout: 300000 });
   log("▶ bunker:// でつないでいます（署名アプリで承認してください）");
   await withTimeout(signer.connect(), 300000, "署名アプリとの接続");
-} else {
+} else if (client.remote) {
+  // 前につながった署名アプリに、そのまま頼む
+  log("▶ 前につないだ署名アプリに頼みます（署名アプリを開いておいてください）");
+  signer = BunkerSigner.fromBunker(clientSk, { pubkey: client.remote, relays: SIGNER_RELAYS, secret: client.secret }, { pool, timeout: 300000 });
+  try {
+    await withTimeout(signer.getPublicKey(), 90000, "署名アプリの返事");
+  } catch (e) {
+    log(`  前の接続が使えませんでした（${e.message}）。新しくつなぎます`);
+    try { await signer.close(); } catch { /* */ }
+    signer = null;
+    await freshClient();
+    clientSk = hexToBytes(client.sk);
+  }
+}
+if (!signer) {
   const secret = client.secret;
   const uri = createNostrConnectURI({
     clientPubkey: getPublicKey(clientSk),
@@ -169,6 +187,8 @@ if (process.env.SATSMAP_BUNKER) {
   log("  つながるのを待っています（30 分まで）…");
   const remote = await waitNostrConnect(SIGNER_RELAYS, secret, 1800000);
   signer = BunkerSigner.fromBunker(clientSk, { pubkey: remote, relays: SIGNER_RELAYS, secret }, { pool, timeout: 300000 });
+  client = { ...client, remote, at: Math.floor(Date.now() / 1000) };
+  await writeFile(clientFile, JSON.stringify(client), { mode: 0o600 });
 }
 const pubkey = await withTimeout(signer.getPublicKey(), 300000, "公開鍵の取得");
 const npub = nip19.npubEncode(pubkey);

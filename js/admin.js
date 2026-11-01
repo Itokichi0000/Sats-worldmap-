@@ -4,8 +4,8 @@
  */
 (function () {
   const $ = (id) => document.getElementById(id);
-  const NUM = ["roundMinutes", "roundGoal", "bigAt", "whaleAt", "rotateSec"];
-  const BOOL = ["sound", "zoom", "rotate", "countAll", "showMessages", "record"];
+  const NUM = ["roundMinutes", "roundGoal", "bigAt", "whaleAt", "rotateSec", "missionMinutes"];
+  const BOOL = ["sound", "zoom", "rotate", "countAll", "showMessages", "record", "missions", "fever"];
   let lastSeen = 0;
 
   function fill() {
@@ -235,6 +235,7 @@
 
     $("round-start").addEventListener("click", () => { saveAll(); SM.bus.post({ type: "round-start" }); });
     $("round-end").addEventListener("click", () => SM.bus.post({ type: "round-end" }));
+    $("mission-next").addEventListener("click", () => SM.bus.post({ type: "mission-next" }));
 
     $("entries").addEventListener("click", (e) => {
       const b = e.target.closest("[data-hide]");

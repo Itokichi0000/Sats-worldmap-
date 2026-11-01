@@ -69,9 +69,16 @@
     SatsMap.setTotals("country", a.country);
     SatsMap.setTotals("jp_prefecture", a.prefecture);
     renderTug(a);
+    const kings = SM.kings(list, settings.ngWords);
+    ["country", "jp_prefecture"].forEach((type) => {
+      const m = {};
+      kings.forEach((k, key) => { if (key.startsWith(`${type}:`)) m[key.slice(type.length + 1)] = k.nick; });
+      SatsMap.setKings(type, m);
+    });
     renderRanking(list);
     renderRound(list);
     renderFeed(list);
+    renderMission();
     return a;
   }
 
@@ -90,11 +97,20 @@
     const el = $("ranking-list");
     const a = aggregate(list);
     let rows;
+    let unit = "";
     if (rankMode === "region") {
       rows = [...a.byRegion.entries()].map(([k, v]) => {
         const r = SM.regionByKey(k);
         return { label: `${r.flag} ${r.name}`, v };
       });
+    } else if (rankMode === "area") {
+      const m = new Map();
+      list.forEach((e) => { const ar = SM.areaOf(e.r); if (ar) m.set(ar, (m.get(ar) || 0) + e.sats); });
+      rows = [...m.entries()].map(([ar, v]) => ({ label: `${ar.emoji} ${ar.name}`, v }));
+    } else if (rankMode === "king") {
+      const crowns = SM.crowns(SM.kings(list, settings.ngWords));
+      rows = [...crowns.entries()].map(([nick, v]) => ({ label: `👑 ${nick}`, v }));
+      unit = " 冠";
     } else {
       rows = [...a.byPerson.entries()]
         .map(([n, v]) => ({ label: SM.cleanNick(n, settings.ngWords), v }))
@@ -105,7 +121,13 @@
     const max = rows.length ? rows[0].v : 1;
     document.querySelectorAll(".rank-tab").forEach((b) => b.classList.toggle("active", b.dataset.rank === rankMode));
     if (!rows.length) {
-      el.innerHTML = `<div class="empty">${rankMode === "region" ? "最初の 1 投を待っています ⚡" : "ニックネームを付けて投げると、ここに載ります"}</div>`;
+      const empty = {
+        region: "最初の 1 投を待っています ⚡",
+        area: "都道府県に投げると、地方ごとの対抗戦が始まります",
+        king: "その地域にいちばん多く投げた人が「王様」。ニックネームを付けて投げよう",
+        people: "ニックネームを付けて投げると、ここに載ります",
+      };
+      el.innerHTML = `<div class="empty">${empty[rankMode]}</div>`;
       return;
     }
     const medal = ["🥇", "🥈", "🥉"];
@@ -113,7 +135,7 @@
       <div class="rank-row">
         <div class="rank-index">${medal[i] || i + 1}</div>
         <div class="rank-info">
-          <div class="rank-name"><span>${SM.esc(r.label)}</span><span class="amt">${SM.fmt(r.v)}</span></div>
+          <div class="rank-name"><span>${SM.esc(r.label)}</span><span class="amt">${SM.fmt(r.v)}${unit}</span></div>
           <div class="rank-bar-track"><div class="rank-bar-fill" style="width:${Math.max(6, (r.v / max) * 100)}%"></div></div>
         </div>
       </div>`).join("");
@@ -201,7 +223,20 @@
     return MILESTONES.find((m) => m > n) || Math.ceil((n + 1) / 10000000) * 10000000;
   }
 
+  let fever = false;
+  function setFever(on) {
+    if (fever === on) return;
+    fever = on;
+    document.body.classList.toggle("fever", on);
+    if (on) {
+      SM.fx.banner(`<small>🔥 ラストスパート！</small>あと 60 秒<em>演出がパワーアップ中</em>`, "big", 2600);
+      SM.sound.play("fanfare");
+    }
+  }
+
   function tickTimer() {
+    tickMission();
+    setFever(!!settings.fever && round.state === "running" && round.endsAt - Date.now() <= 60000 && round.endsAt > Date.now());
     const el = $("round-timer");
     if (round.state !== "running") {
       el.textContent = round.state === "done" ? "0:00" : "∞";
@@ -250,6 +285,7 @@
     if (round.state !== "running") return;
     const endsAt = Date.now();
     round = { ...round, state: "done", endsAt, history: history().map((x) => (x.no === round.no ? { ...x, endsAt } : x)) };
+    setFever(false);
     SM.saveRound(round);
     publishMeta();
     showResult();
@@ -275,6 +311,15 @@
       ["⚡ 最大の 1 投", biggest ? `${SM.fmt(biggest.sats)} sats<small>${SM.esc(SM.cleanNick(biggest.n, settings.ngWords) || "名無しさん")}</small>` : "—"],
       ["🗾 日本 vs 世界 🌍", `${SM.fmt(a.jp)} : ${SM.fmt(a.world)}<small>${a.jp === a.world ? "引き分け" : a.jp > a.world ? "日本チームの勝ち" : "世界チームの勝ち"}</small>`],
     ];
+    const areaSum = new Map();
+    list.forEach((e) => { const ar = SM.areaOf(e.r); if (ar) areaSum.set(ar, (areaSum.get(ar) || 0) + e.sats); });
+    const topArea = [...areaSum.entries()].sort((x, y) => y[1] - x[1])[0];
+    const crowns = [...SM.crowns(SM.kings(shown(), settings.ngWords)).entries()].sort((x, y) => y[1] - x[1])[0];
+    cards.push(
+      ["🏯 地方対抗の勝者", topArea ? `${topArea[0].emoji} ${topArea[0].name}<small>${SM.fmt(topArea[1])} sats</small>` : "—"],
+      ["👑 王冠がいちばん多い人", crowns ? `${SM.esc(crowns[0])}<small>${crowns[1]} 地域の王様</small>` : "—"],
+    );
+    if (settings.missions) $("result-sub").textContent += ` · お題クリア ${round.cleared || 0} 回`;
     $("result-grid").innerHTML = cards.map(([k, v]) => `<div class="result-item"><span>${k}</span><b>${v}</b></div>`).join("");
     $("result").hidden = false;
     SM.sound.play("gong");
@@ -282,6 +327,80 @@
       SM.fx.confetti();
       setTimeout(() => SM.sound.play("fanfare"), 500);
     }
+  }
+
+  // ── お題 ───────────────────────────────────────────────
+  let mission = SM.mission();
+  let missionRecent = [];
+  const sinceMission = () => shown().filter((x) => (x.seenAt || x.at) >= (mission ? mission.startedAt : 0)).sort((x, y) => (x.seenAt || x.at) - (y.seenAt || y.at));
+
+  function newMission(spec) {
+    const prefs = aggregate(shown()).prefs;
+    const m = spec || SM.missions.next({ prefs, recent: missionRecent });
+    missionRecent = [m.type, ...missionRecent].slice(0, 2);
+    const minutes = Math.max(1, Number(settings.missionMinutes) || 4);
+    mission = { ...m, startedAt: Date.now(), endsAt: Date.now() + minutes * 60000, state: "active", by: "", no: ((mission && mission.no) || 0) + 1 };
+    SM.saveMission(mission);
+    renderMission();
+    publishMission();
+    SM.fx.banner(`<small>🎯 新しいお題</small>${SM.esc(SM.missions.text(mission))}`, "mission", 2800);
+  }
+
+  function tickMission() {
+    if (!settings.missions) {
+      $("mission").hidden = true;
+      return;
+    }
+    const now = Date.now();
+    if (!mission || !SM.missions.valid(mission)) return newMission();
+    if (mission.state === "active" && now > mission.endsAt) {
+      mission = { ...mission, state: "fail", doneAt: now };
+      SM.saveMission(mission);
+      publishMission();
+      SM.fx.banner(`<small>⌛ 時間切れ…</small>次のお題へ`, "info", 1800);
+    }
+    // 終わったお題は 12 秒見せてから次へ
+    if (mission.state !== "active" && now - (mission.doneAt || mission.endsAt) > 12000 && !playing) return newMission();
+    renderMissionTime();
+  }
+
+  function checkMission(e) {
+    if (!settings.missions || !mission || mission.state !== "active") return;
+    const res = SM.missions.check(mission, sinceMission());
+    renderMission();
+    if (res.cur < res.need) return;
+    mission = { ...mission, state: "clear", by: res.by || nickOrAnon(e), doneAt: Date.now() };
+    SM.saveMission(mission);
+    if (round.state === "running") {
+      round = { ...round, cleared: (round.cleared || 0) + 1 };
+      SM.saveRound(round);
+    }
+    publishMission();
+    renderMission();
+    SM.fx.banner(`<small>🎯 MISSION CLEAR!</small>${SM.esc(SM.missions.text(mission))}<em>決めたのは ${SM.esc(mission.by)}</em>`, "mission", 3600);
+    SM.fx.confetti(180);
+    SM.sound.play("fanfare");
+  }
+
+  function renderMission() {
+    const box = $("mission");
+    if (!settings.missions || !mission) { box.hidden = true; return; }
+    box.hidden = false;
+    box.className = `mission ${mission.state}`;
+    $("mission-text").textContent = SM.missions.text(mission);
+    const res = mission.state === "active" ? SM.missions.check(mission, sinceMission()) : null;
+    $("mission-prog").textContent = mission.state === "clear" ? `✓ クリア！ by ${mission.by}` : mission.state === "fail" ? "時間切れ" : res && res.need > 1 ? `${Math.min(res.cur, res.need)} / ${res.need}` : "";
+    renderMissionTime();
+  }
+  function renderMissionTime() {
+    if (!mission) return;
+    const left = Math.max(0, mission.endsAt - Date.now());
+    const sec = Math.ceil(left / 1000);
+    $("mission-time").textContent = mission.state === "active" ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "";
+  }
+  function publishMission() {
+    if (!settings.record || !window.SM.records || !mission) return;
+    SM.records.publishMission(mission, SM.session()).catch(() => {});
   }
 
   // ── 届いた 1 件 ────────────────────────────────────────
@@ -292,6 +411,7 @@
     // 開き直したときに見つけた分（silent）だけ、届いた時刻で決める
     const running = round.state === "running";
     e.round = running && (!silent || e.at >= round.startedAt - 1000) ? round.no : 0;
+    e.seenAt = silent ? e.at : Date.now();
     entries.push(e);
     entries.sort((x, y) => x.at - y.at);
     SM.saveEntries(entries);
@@ -362,6 +482,7 @@
   }
 
   async function show(e, fast) {
+    const kingsBefore = SM.kings(shown(), settings.ngWords);
     const before = aggregate(shown());
     const beforeRound = inRound(shown(), round.no).reduce((s, x) => s + x.sats, 0);
     const region = SM.regionByKey(e.r);
@@ -378,21 +499,23 @@
     const pt = (region && SatsMap.screenPoint(region.type, region.code)) || centerOfMaps();
     if (region) SatsMap.pulse(region.type, region.code);
 
-    // 金額で演出を変える
+    // 金額で演出を変える（ラストスパートのあいだは 1 段強く）
     let wait = fast ? 700 : 1800;
-    if (e.sats >= settings.whaleAt) {
+    const boost = fever ? (e.sats >= settings.bigAt ? settings.whaleAt : e.sats >= 100 ? settings.bigAt : 100) : 0;
+    const power = Math.max(e.sats, boost);
+    if (power >= settings.whaleAt) {
       SM.fx.fireworks(pt.x, pt.y, 7);
       SM.fx.confetti();
       SM.fx.shake();
       SM.sound.play("fanfare");
       SM.fx.banner(`<small>🐋 WHALE ZAP</small>${SM.fmt(e.sats)} sats<em>${SM.esc(nickOrAnon(e))} → ${region ? `${region.flag} ${SM.esc(region.name)}` : "⚡"}</em>`, "whale", 3800);
       wait = 4600;
-    } else if (e.sats >= settings.bigAt) {
+    } else if (power >= settings.bigAt) {
       SM.fx.fireworks(pt.x, pt.y, 4);
       SM.sound.play("zap");
       SM.fx.banner(`<small>⚡ BIG ZAP</small>${SM.fmt(e.sats)} sats`, "big", 2200);
       wait = fast ? 1200 : 3000;
-    } else if (e.sats >= 100) {
+    } else if (power >= 100) {
       SM.fx.bolt(pt.x, pt.y);
       SM.sound.play("zap");
     } else {
@@ -400,6 +523,23 @@
       SM.sound.play("pip");
     }
     bubble(e, region, pt, wait + 3500);
+    // 名物の雨（🐙 大阪、🦀 北海道…。国は国旗）
+    if (region && power >= 100) SM.fx.rain(region.flag, power >= settings.whaleAt ? 70 : power >= settings.bigAt ? 32 : 14);
+
+    // 王様の交代
+    const nick = e.hidden ? "" : SM.cleanNick(e.n, settings.ngWords);
+    if (region && nick) {
+      const kNow = SM.kings(shown(), settings.ngWords).get(e.r);
+      const kWas = kingsBefore.get(e.r);
+      if (kNow && kNow.nick === nick && (!kWas || kWas.nick !== nick)) {
+        SM.fx.banner(kWas
+          ? `<small>👑 王座交代！ ${region.flag} ${SM.esc(region.name)}</small>${SM.esc(nick)}<em>${SM.esc(kWas.nick)} から奪った（${SM.fmt(kNow.sats)} sats）</em>`
+          : `<small>👑 ${region.flag} ${SM.esc(region.name)} の初代王様</small>${SM.esc(nick)}`, "king", 2600);
+        SM.sound.play("combo");
+      }
+    }
+    // お題
+    checkMission(e);
 
     // おまけ：ゾロ目
     if (SM.isRepdigit(e.sats)) {
@@ -554,6 +694,15 @@
     if (top) {
       const r = SM.regionByKey(top[0]);
       lines.push(`いまのトップ：${r.flag} ${r.name} ${SM.fmt(top[1])} sats — 追い抜けるか？`);
+    }
+    if (mission && mission.state === "active") lines.push(`🎯 いまのお題：${SM.missions.text(mission)}`);
+    const kings = [...SM.kings(list, settings.ngWords).entries()].sort((x, y) => y[1].sats - x[1].sats);
+    if (kings.length) {
+      const [key, k] = kings[Math.floor(Math.random() * Math.min(5, kings.length))];
+      const r = SM.regionByKey(key);
+      lines.push(`👑 ${r.flag} ${r.name} の王様は ${k.nick}（${SM.fmt(k.sats)} sats）— ${SM.fmt(k.sats + 1)} sats 投げれば王座を奪える！`);
+    } else {
+      lines.push("👑 その地域にいちばん多く投げた人が「王様」。ニックネームを付けて投げよう");
     }
     lines.push("ゾロ目（111・777 など）で投げると……？", `${SM.fmt(settings.whaleAt)} sats 以上で、クジラが現れる 🐋`, "ニックネームとひとことも、地図に出ます");
     return lines;
@@ -870,6 +1019,8 @@
         SM.saveEntries(entries);
         SM.resetSince();
         round = { no: 0, startedAt: 0, endsAt: 0, goal: settings.roundGoal, state: "idle", history: [] };
+        mission = null;
+        SM.saveMission(null);
         SM.saveRound(round);
         $("result").hidden = true;
         renderAll();
@@ -881,6 +1032,14 @@
       case "rebuild":
         rebuild(msg);
         break;
+      case "mission-next":
+        newMission();
+        break;
+      case "mission-set": {
+        const m = SM.missions.make(msg.mission && msg.mission.type, msg.mission && msg.mission.params);
+        if (m && SM.missions.valid(m)) newMission(m);
+        break;
+      }
       case "ping":
         changed();
         break;
@@ -901,10 +1060,11 @@
     poll(true);
     setInterval(tickTimer, 250);
     setInterval(() => renderFeed(shown()), 30000);
+    const MODES = ["region", "people", "area", "king"];
     setInterval(() => {
-      rankMode = rankMode === "region" ? "people" : "region";
+      rankMode = MODES[(MODES.indexOf(rankMode) + 1) % MODES.length];
       renderRanking(shown());
-    }, 12000);
+    }, 10000);
     nextTicker();
     setInterval(nextTicker, 9000);
     // 音：ブラウザは一度押すまで音を出させない
