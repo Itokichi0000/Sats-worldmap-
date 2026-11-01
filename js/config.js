@@ -6,9 +6,14 @@
  * スクリーンを映すパソコンのブラウザの中にだけ置く。
  */
 window.SATS_CONFIG = {
-  // 受け取る Blink のユーザー名（Lightning アドレス ○○@blink.sv の ○○）
+  // （Blink で受け取るとき）受け取る Blink のユーザー名（Lightning アドレス ○○@blink.sv の ○○）
   // 空のままなら、管理画面で入れた名前を使う（支払いページの URL に ?u= で付く）
   blinkUsername: "",
+
+  // NWC の支払いページ用の接続（make_invoice・lookup_invoice だけを許したもの）。
+  // 空なら、管理画面で入れたものをスクリーンの QR の URL（# のあと）で渡す。
+  // ポスターなどに支払いページの URL を刷るときだけ、ここに書く（だれでも見られる。お金は動かせない接続にすること）
+  nwcPay: "",
 
   // 画面の上に出すイベント名（空なら出さない）
   eventName: "",

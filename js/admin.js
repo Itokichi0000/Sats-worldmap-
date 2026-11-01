@@ -8,8 +8,21 @@
   const BOOL = ["sound", "zoom", "rotate", "countAll", "showMessages", "record", "missions", "fever"];
   let lastSeen = 0;
 
+  const provider = () => (document.querySelector('input[name="provider"]:checked') || {}).value || "nwc";
+  function showProvider() {
+    $("box-nwc").hidden = provider() !== "nwc";
+    $("box-blink").hidden = provider() !== "blink";
+  }
+  const MASK = "••••••••（保存済み）";
+
   function fill() {
     const s = SM.settings();
+    document.querySelectorAll('input[name="provider"]').forEach((r) => { r.checked = r.value === (s.provider === "blink" ? "blink" : "nwc"); });
+    showProvider();
+    [["nwc-pay", SM.nwcPay()], ["nwc-screen", SM.nwcScreen()]].forEach(([id, v]) => {
+      $(id).value = v ? MASK : "";
+      $(id).dataset.saved = v ? "1" : "";
+    });
     $("username").value = s.username || "";
     $("apikey").value = SM.apiKey() ? "••••••••（保存済み）" : "";
     $("apikey").dataset.saved = SM.apiKey() ? "1" : "";
@@ -33,11 +46,12 @@
 
   function renderPayLink() {
     const u = new URL("pay.html", location.href);
-    const cfgUser = (window.SATS_CONFIG && window.SATS_CONFIG.blinkUsername) || "";
+    const cfg = window.SATS_CONFIG || {};
     const user = cleanUser($("username").value);
-    if (!cfgUser && user) u.searchParams.set("u", user);
+    if (provider() === "blink" && !cfg.blinkUsername && user) u.searchParams.set("u", user);
+    if (provider() === "nwc" && !cfg.nwcPay && SM.nwcPay()) u.hash = `nwc=${encodeURIComponent(SM.nwcPay())}`;
     $("pay-link").href = u.toString();
-    $("pay-link").textContent = u.toString();
+    $("pay-link").textContent = u.toString().replace(/#nwc=.*/, "#nwc=…（支払いページ用の接続）");
     const qr = qrcode(0, "M");
     qr.addData(u.toString());
     qr.make();
@@ -49,6 +63,59 @@
     el.hidden = false;
     el.className = `log ${ok ? "ok" : "ng"}`;
     el.textContent = lines.join("\n");
+  }
+
+  async function testNwc() {
+    const out = [];
+    let ok = true;
+    const payUri = (window.SATS_CONFIG && window.SATS_CONFIG.nwcPay) || SM.nwcPay();
+    const scrUri = SM.nwcScreen();
+    let pay = null;
+    let scr = null;
+    try { pay = SM.nwc.client(payUri); } catch (e) { ok = false; out.push(`✗ ① 支払いページ用：${payUri ? e.message : "入っていません"}`); }
+    try { scr = SM.nwc.client(scrUri); } catch (e) { ok = false; out.push(`✗ ② スクリーン用：${scrUri ? e.message : "入っていません"}`); }
+    let inv = null;
+    if (pay) {
+      try {
+        inv = await SM.nwc.makeInvoice(pay, 1, "SatsMap 接続テスト（払わなくて大丈夫です）");
+        out.push("✓ ① 支払いページ用：インボイスを作れました");
+        const st = await SM.nwc.lookup(pay, inv);
+        out.push(`✓ ① 支払いページ用：インボイスを確かめられました（${st === "PAID" ? "支払い済み" : "まだ払われていない"}）`);
+      } catch (e) {
+        ok = false;
+        out.push(`✗ ① 支払いページ用：${e.message}`);
+      }
+      // 支払いページ用は QR からだれでも読めるので、ほかのことができたら知らせる
+      for (const [method, what] of [["list_transactions", "受け取り履歴を読めます"], ["get_balance", "残高を読めます"]]) {
+        try {
+          await pay.request(method, method === "list_transactions" ? { limit: 1 } : {}, 8000);
+          out.push(`！ ① 支払いページ用の接続で${what}。QR からだれでも読めるので、ウォレットでこの権限を外してください`);
+        } catch (e) { /* できないのが正しい */ }
+      }
+    }
+    if (scr) {
+      try {
+        const r = await SM.nwc.listIncoming(scr, { limit: 5 });
+        out.push(`✓ ② スクリーン用：受け取った支払いの一覧を読めました（最近の ${r.items.length} 件）`);
+      } catch (e) {
+        if (["NOT_IMPLEMENTED", "RESTRICTED", "UNAUTHORIZED"].includes(e.code)) out.push(`！ ② スクリーン用：一覧を読めません（${e.message}）。「受け取った」の知らせだけで動きます`);
+        else { ok = false; out.push(`✗ ② スクリーン用：${e.message}`); }
+      }
+      const info = await scr.info();
+      if (!info.found) out.push("！ ウォレットの情報（kind 13194）が見つかりません。リレーを確かめてください");
+      else if (info.notifications.includes("payment_received")) out.push("✓ ② スクリーン用：「受け取った」の知らせに対応しています（すぐ地図に出ます）");
+      else out.push("！ ウォレットが「受け取った」の知らせに対応していません。一覧を数秒ごとに読むので、少し遅れて出ます");
+      if (inv && inv.paymentHash) {
+        try {
+          await SM.nwc.lookup(scr, inv);
+          out.push("✓ ① と ② は同じウォレットにつながっています");
+        } catch (e) {
+          ok = false;
+          out.push(`✗ ② スクリーン用で ① のインボイスが見つかりません（${e.message}）。同じウォレットの接続か確かめてください`);
+        }
+      }
+    }
+    log(out, ok);
   }
 
   async function testBlink() {
@@ -87,7 +154,7 @@
   }
 
   function saveAll() {
-    const patch = { username: cleanUser($("username").value) };
+    const patch = { username: cleanUser($("username").value), provider: provider() };
     NUM.forEach((k) => {
       const n = Number($(k).value);
       if (Number.isFinite(n) && n > 0) patch[k] = Math.floor(n);
@@ -209,6 +276,35 @@
     renderRound();
 
     $("username").addEventListener("input", renderPayLink);
+    document.querySelectorAll('input[name="provider"]').forEach((r) => r.addEventListener("change", () => {
+      showProvider();
+      saveAll();
+      renderPayLink();
+    }));
+    const saveNwc = () => {
+      for (const [id, save] of [["nwc-pay", SM.saveNwcPay], ["nwc-screen", SM.saveNwcScreen]]) {
+        const v = $(id).value.trim();
+        if (!v || v === MASK) continue;
+        try { SM.nwc.parse(v); } catch (e) { log([`✗ ${id === "nwc-pay" ? "① 支払いページ用" : "② スクリーン用"}：${e.message}`], false); return false; }
+        save(v);
+      }
+      saveAll();
+      fill();
+      return true;
+    };
+    ["nwc-pay", "nwc-screen"].forEach((id) => $(id).addEventListener("focus", (e) => { if (e.target.dataset.saved) e.target.value = ""; }));
+    $("save-nwc").addEventListener("click", () => { if (saveNwc()) log(["保存しました"], true); });
+    $("test-nwc").addEventListener("click", () => {
+      if (!saveNwc()) return;
+      log(["確かめています…（ウォレットの返事を待っています）"], true);
+      testNwc();
+    });
+    $("forget-nwc").addEventListener("click", () => {
+      if (!confirm("このブラウザから NWC の接続を 2 つとも消します。スクリーンはデモに戻ります。")) return;
+      SM.saveNwcPay("");
+      SM.saveNwcScreen("");
+      fill();
+    });
     $("apikey").addEventListener("focus", (e) => { if (e.target.dataset.saved) e.target.value = ""; });
     $("save-blink").addEventListener("click", () => {
       const key = $("apikey").value.trim();

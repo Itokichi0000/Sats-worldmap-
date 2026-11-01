@@ -10,6 +10,8 @@ window.SM = window.SM || {};
   const K = {
     settings: "satsmap.settings.v1",
     apiKey: "satsmap.apiKey.v1",
+    nwcScreen: "satsmap.nwcScreen.v1",
+    nwcPay: "satsmap.nwcPay.v1",
     entries: "satsmap.entries.v1",
     round: "satsmap.round.v1",
     since: "satsmap.since.v1",
@@ -18,6 +20,7 @@ window.SM = window.SM || {};
   };
 
   const DEFAULTS = {
+    provider: "nwc",   // 受け取り方："nwc"（Nostr Wallet Connect）か "blink"
     username: "",
     roundMinutes: 10,
     roundGoal: 21000,
@@ -75,6 +78,26 @@ window.SM = window.SM || {};
     latestKey = key || "";
     SM.bus.post({ type: "settings", apiKey: latestKey });
   };
+
+  // NWC の接続文字列。スクリーン用（受け取り履歴を読める）はこのブラウザにだけ置く。
+  // 支払いページ用（インボイスを作る・確かめるだけ）は、スクリーンの QR の URL の # のあとに載せる
+  const latestNwc = { nwcScreen: null, nwcPay: null };
+  const nwcGet = (k) => {
+    if (latestNwc[k] !== null) return latestNwc[k];
+    try { return localStorage.getItem(K[k]) || ""; } catch (e) { return ""; }
+  };
+  const nwcSet = (k, v) => {
+    try {
+      if (v) localStorage.setItem(K[k], v);
+      else localStorage.removeItem(K[k]);
+    } catch (e) { /* 使えない */ }
+    latestNwc[k] = v || "";
+    SM.bus.post({ type: "settings", [k]: latestNwc[k] });
+  };
+  SM.nwcScreen = () => nwcGet("nwcScreen");
+  SM.saveNwcScreen = (v) => nwcSet("nwcScreen", v);
+  SM.nwcPay = () => nwcGet("nwcPay");
+  SM.saveNwcPay = (v) => nwcSet("nwcPay", v);
 
   // entries: { id, at（ミリ秒）, sats, r（"type:code" か null）, n, m, hidden, test, round }
   SM.entries = () => {
@@ -134,6 +157,8 @@ window.SM = window.SM || {};
       if (m && m.type === "settings") {
         if (m.settings && typeof m.settings === "object") latestSettings = m.settings;
         if (typeof m.apiKey === "string") latestKey = m.apiKey;
+        if (typeof m.nwcScreen === "string") latestNwc.nwcScreen = m.nwcScreen;
+        if (typeof m.nwcPay === "string") latestNwc.nwcPay = m.nwcPay;
       }
       listeners.forEach((fn) => fn(m));
     };
@@ -142,6 +167,8 @@ window.SM = window.SM || {};
   addEventListener("storage", (ev) => {
     if (ev.key === K.settings) latestSettings = null;
     if (ev.key === K.apiKey) latestKey = null;
+    if (ev.key === K.nwcScreen) latestNwc.nwcScreen = null;
+    if (ev.key === K.nwcPay) latestNwc.nwcPay = null;
   });
   SM.bus = {
     post(msg) { if (channel) channel.postMessage(msg); },

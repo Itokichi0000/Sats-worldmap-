@@ -22,7 +22,10 @@
   let status = { kind: "init", text: "" };
 
   const $ = (id) => document.getElementById(id);
-  const isDemo = () => params.has("demo") || !SM.apiKey();
+  // 受け取り方：NWC（Nostr Wallet Connect）か Blink
+  const provider = () => (settings.provider === "blink" ? "blink" : "nwc");
+  const hasReceiver = () => (provider() === "nwc" ? !!SM.nwcScreen() : !!SM.apiKey());
+  const isDemo = () => params.has("demo") || !hasReceiver();
 
   // ── 集計 ───────────────────────────────────────────────
   function aggregate(list) {
@@ -722,8 +725,10 @@
     const u = new URL("pay.html", location.href);
     u.search = "";
     u.hash = "";
-    const cfgUser = (window.SATS_CONFIG && window.SATS_CONFIG.blinkUsername) || "";
-    if (!cfgUser && settings.username) u.searchParams.set("u", settings.username);
+    const cfg = window.SATS_CONFIG || {};
+    if (provider() === "blink" && !cfg.blinkUsername && settings.username) u.searchParams.set("u", settings.username);
+    // NWC の支払いページ用の接続（インボイスを作る・確かめるだけ）は # のあとに載せる（サーバーに送られない）
+    if (provider() === "nwc" && !cfg.nwcPay && SM.nwcPay()) u.hash = `nwc=${encodeURIComponent(SM.nwcPay())}`;
     // スマホに「いまの会場」を出すための、記録の鍵とイベント（とリレーを変えたときはリレー）
     if (settings.record && window.SM.records) {
       SM.records.ensureKey();
@@ -742,34 +747,41 @@
     $("pay-url").textContent = url.replace(/^https?:\/\//, "");
   }
 
-  // ── Blink を読む ──────────────────────────────────────
-  let failures = 0;
-  let pollTimer = 0;
-  async function poll(initial) {
-    clearTimeout(pollTimer);
-    if (rebuilding) return;
-    const key = SM.apiKey();
-    if (!key) {
-      setStatus("demo");
-      pollTimer = setTimeout(() => poll(true), 5000);
-      return;
+  // ── 受け取りを読む（NWC か Blink） ─────────────────────────
+  function reader() {
+    if (provider() === "nwc") {
+      const c = SM.nwc.client(SM.nwcScreen());
+      let offset = 0;
+      return {
+        async page(size, since) {
+          const r = await SM.nwc.listIncoming(c, { from: since, limit: size, offset });
+          offset += r.raw;
+          return { items: r.items, hasMore: r.raw >= size, oldest: r.oldest };
+        },
+      };
     }
-    try {
-      const since = SM.since();
-      const fresh = [];
-      let after = null;
-      for (let page = 0; page < (initial ? 10 : 1); page++) {
-        const res = await SM.blink.receives(key, { first: initial ? 50 : 20, after });
-        res.items.forEach((it) => { if (it.at >= since && !seen.has(it.id)) fresh.push(it); });
-        if (!res.hasMore || res.oldest < since || !res.cursor) break;
-        after = res.cursor;
-      }
-      fresh.sort((x, y) => x.at - y.at);
-      for (const it of fresh) {
+    const key = SM.apiKey();
+    let after = null;
+    return {
+      async page(size) {
+        const r = await SM.blink.receives(key, { first: size, after });
+        after = r.cursor;
+        return { items: r.items, hasMore: r.hasMore && !!r.cursor, oldest: r.oldest };
+      },
+    };
+  }
+
+  /** 受け取った支払い（{ id, sats, memo, at（秒）, hash }）を記録に入れる */
+  function ingest(items, silent) {
+    const since = SM.since();
+    items
+      .filter((it) => it.at >= since && !seen.has(it.id))
+      .sort((x, y) => x.at - y.at)
+      .forEach((it) => {
         const d = SM.memo.decode(it.memo);
         if (!d && !settings.countAll) {
           seen.add(it.id);
-          continue;
+          return;
         }
         addEntry({
           id: it.id,
@@ -780,15 +792,64 @@
           m: d ? d.msg : SM.tidy(it.memo, SM.MSG_MAX),
           hash: it.hash,
           hidden: false,
-        }, { silent: initial });
+        }, { silent });
+      });
+  }
+
+  // NWC の「受け取った」の知らせ（すぐ地図を灯す。一覧を読むのは取りこぼし用）
+  let notify = { uri: "", stop: null };
+  function ensureNotify() {
+    const uri = provider() === "nwc" ? SM.nwcScreen() : "";
+    if (notify.uri === uri) return;
+    if (notify.stop) notify.stop();
+    notify = { uri, stop: null };
+    if (!uri) return;
+    try {
+      notify.stop = SM.nwc.client(uri).onPayment((tx) => {
+        if (tx.incoming && tx.paid && tx.sats > 0 && tx.id) ingest([tx], false);
+      });
+    } catch (e) { /* 接続文字列がおかしい。poll がわけを出す */ }
+  }
+
+  let failures = 0;
+  let pollTimer = 0;
+  let listUnsupported = false;
+  async function poll(initial) {
+    clearTimeout(pollTimer);
+    if (rebuilding) return;
+    if (!hasReceiver()) {
+      ensureNotify();
+      setStatus("demo");
+      pollTimer = setTimeout(() => poll(true), 5000);
+      return;
+    }
+    try {
+      ensureNotify();
+      if (!(provider() === "nwc" && listUnsupported)) {
+        const since = SM.since();
+        const r = reader();
+        const items = [];
+        for (let page = 0; page < (initial ? 10 : 1); page++) {
+          const res = await r.page(initial ? 50 : 20, since);
+          items.push(...res.items);
+          if (!res.hasMore || res.oldest < since) break;
+        }
+        ingest(items, initial);
       }
       failures = 0;
-      setStatus("live");
+      setStatus("live", listUnsupported ? "ウォレットが一覧に対応していないので、知らせだけで受け取っています" : "");
     } catch (err) {
-      failures += 1;
-      setStatus("error", err.message);
+      // 一覧を読めないウォレット（または権限がない接続）は、知らせだけで受け取る
+      if (provider() === "nwc" && ["NOT_IMPLEMENTED", "RESTRICTED", "UNAUTHORIZED"].includes(err.code)) {
+        listUnsupported = true;
+        setStatus("live", "ウォレットが一覧に対応していないので、知らせだけで受け取っています");
+      } else {
+        failures += 1;
+        setStatus("error", err.message);
+      }
     }
-    const base = Math.max(2, Number(settings.pollSec) || 4) * 1000;
+    // NWC は知らせで届くので、一覧はゆっくりでよい
+    const base = Math.max(2, Number(settings.pollSec) || 4) * 1000 * (provider() === "nwc" ? 2 : 1);
     pollTimer = setTimeout(() => poll(false), base * Math.min(8, 2 ** failures));
   }
 
@@ -796,7 +857,7 @@
     status = { kind, text };
     const el = $("status-chip");
     el.className = `status-chip ${kind}`;
-    el.textContent = { live: "● LIVE", demo: "DEMO", error: "⚠ Blink につながりません", init: "…" }[kind] || kind;
+    el.textContent = { live: "● LIVE", demo: "DEMO", error: `⚠ ${provider() === "nwc" ? "ウォレット" : "Blink"}につながりません`, init: "…" }[kind] || kind;
     el.title = text;
     $("demo-card").hidden = !isDemo();
     changed();
@@ -880,9 +941,8 @@
   let rebuilding = false;
   async function rebuild(msg) {
     if (rebuilding) return;
-    const key = SM.apiKey();
     const reply = (o) => SM.bus.post({ type: "rebuild-done", ...o });
-    if (!key) return reply({ ok: false, error: "Blink の API キーがありません" });
+    if (!hasReceiver()) return reply({ ok: false, error: provider() === "nwc" ? "スクリーン用の NWC がありません" : "Blink の API キーがありません" });
     rebuilding = true;
     clearTimeout(pollTimer);
     try {
@@ -911,14 +971,13 @@
         SM.saveRound(round);
       }
 
-      // 2. Blink の入金履歴を、since までさかのぼって読む
+      // 2. ウォレット（NWC か Blink）の入金履歴を、since までさかのぼって読む
       const items = [];
-      let after = null;
+      const r = reader();
       for (let page = 0; page < 200; page++) {
-        const res = await SM.blink.receives(key, { first: 50, after });
+        const res = await r.page(50, since);
         res.items.forEach((it) => { if (it.at >= since) items.push(it); });
-        if (!res.hasMore || res.oldest < since || !res.cursor) break;
-        after = res.cursor;
+        if (!res.hasMore || res.oldest < since) break;
       }
 
       // 3. 組み立てる（いまの記録・Nostr の記録の「隠した」「ラウンド」を引き継ぐ）
@@ -977,6 +1036,7 @@
     switch (msg.type) {
       case "settings":
         settings = SM.settings();
+        listUnsupported = false;
         SM.sound.enabled = settings.sound;
         $("event-name").textContent = (window.SATS_CONFIG && window.SATS_CONFIG.eventName) || "";
         renderQr();

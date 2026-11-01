@@ -17,6 +17,34 @@
 
   const username = SM.username();
 
+  // 受け取り方：QR の URL の # のあとの NWC（または config.js の nwcPay）があれば NWC、なければ Blink
+  const nwcUri = (() => {
+    try {
+      const h = new URLSearchParams(location.hash.slice(1)).get("nwc");
+      if (h) return h;
+    } catch (e) { /* なし */ }
+    return cfg.nwcPay || "";
+  })();
+  const payer = (() => {
+    if (nwcUri) {
+      let c = null;
+      try { c = SM.nwc.client(nwcUri); } catch (e) { return { error: e.message }; }
+      return {
+        label: c.lud16 || "主催者のウォレット（NWC）",
+        create: (sats, memo) => SM.nwc.makeInvoice(c, sats, memo),
+        status: (inv) => SM.nwc.lookup(c, inv),
+      };
+    }
+    if (username) {
+      return {
+        label: `${username}@blink.sv（Blink）`,
+        create: (sats, memo) => SM.blink.createInvoice(username, sats, memo),
+        status: (inv) => SM.blink.invoiceStatus(inv.paymentRequest),
+      };
+    }
+    return { error: "受け取る人が設定されていません。会場のスタッフに知らせてください。" };
+  })();
+
   // ── いまの会場（スクリーンが Nostr に出した記録を読む。QR の URL に k・s があるとき） ──
   const q = new URLSearchParams(location.search);
   let live = null;     // Map<取引 id, 記録>
@@ -267,7 +295,7 @@
     fail("");
     const min = cfg.minSats || 1;
     const max = cfg.maxSats || 1000000;
-    if (!username) return fail("受け取る人が設定されていません。会場のスタッフに知らせてください。");
+    if (payer.error) return fail(payer.error);
     if (!region) return fail("地域を選んでください（1 のところ）");
     if (!(amount >= min)) return fail(`金額を選んでください（${SM.fmt(min)} sats から）`);
     if (amount > max) return fail(`${SM.fmt(max)} sats までです`);
@@ -277,7 +305,7 @@
     remember();
     try {
       const memo = SM.memo.encode({ region, nick: $("nick").value, msg: $("msg").value });
-      invoice = await SM.blink.createInvoice(username, amount, memo);
+      invoice = await payer.create(amount, memo);
       mine = live ? { hash: invoice.paymentHash, key: SM.regionKey(region), nick: $("nick").value, before: rankOf(summarize(live), SM.regionKey(region)) } : null;
       showInvoice();
     } catch (e) {
@@ -309,7 +337,7 @@
     const left = expiresAt - Date.now();
     $("expires").textContent = left > 0 ? `（あと ${Math.ceil(left / 60000)} 分）` : "";
     try {
-      const st = await SM.blink.invoiceStatus(invoice.paymentRequest);
+      const st = await payer.status(invoice);
       if (st === "PAID") return paid();
       if (st === "EXPIRED" || left <= 0) {
         $("waiting").innerHTML = "⌛ 期限が切れました。もう一度選んでください";
@@ -343,7 +371,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    $("recipient").textContent = username ? `${username}@blink.sv` : "（未設定）";
+    $("recipient").textContent = payer.label || "（未設定）";
     buildRegions();
     buildAmounts();
     recall();
@@ -364,6 +392,6 @@
     $("again").addEventListener("click", reset);
     // ウォレットから戻ってきたら、すぐ確かめる
     document.addEventListener("visibilitychange", () => { if (!document.hidden && invoice) watch(); });
-    if (!username) fail("受け取る人が設定されていません。会場のスタッフに知らせてください。");
+    if (payer.error) fail(payer.error);
   });
 })();

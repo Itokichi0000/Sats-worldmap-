@@ -50,8 +50,10 @@ await build({
 import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools/pure";
 import { SimplePool } from "nostr-tools/pool";
 import * as nip19 from "nostr-tools/nip19";
+import * as nip04 from "nostr-tools/nip04";
+import * as nip44 from "nostr-tools/nip44";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-window.NostrTools = { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent, SimplePool, nip19, bytesToHex, hexToBytes };
+window.NostrTools = { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent, SimplePool, nip19, nip04, nip44, bytesToHex, hexToBytes };
 `,
     resolveDir: root,
     loader: "js",

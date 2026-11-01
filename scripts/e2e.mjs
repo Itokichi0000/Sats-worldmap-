@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
 import { serve } from "./serve.mjs";
 import { startRelay } from "./test-relay.mjs";
+import { startFakeNwc } from "./fake-nwc.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -123,6 +124,9 @@ try {
   const admin = await context.newPage();
   watch(admin, "admin");
   await admin.goto(`${base}/admin.html`);
+  ok(await admin.locator('input[name="provider"][value="nwc"]').isChecked(), "受け取り方は、はじめは NWC");
+  // ここからしばらくは Blink で受け取る形を確かめる（NWC はあとで）
+  await admin.check('input[name="provider"][value="blink"]');
   await admin.fill("#username", "satsmap@blink.sv");
   await admin.fill("#apikey", blink.key);
   await admin.click("#test-blink");
@@ -286,6 +290,7 @@ try {
   const admin2 = await ctx2.newPage();
   watch(admin2, "admin2");
   await admin2.goto(`${base}/admin.html`);
+  await admin2.check('input[name="provider"][value="blink"]');
   await admin2.fill("#username", "satsmap");
   await admin2.fill("#apikey", blink.key);
   await admin2.click("#save-blink");
@@ -371,6 +376,65 @@ try {
   await screen.waitForFunction(() => !document.body.classList.contains("fever"), null, { timeout: 5000 });
   const res2 = await screen.locator("#result").textContent();
   ok(/地方対抗の勝者/.test(res2) && /王冠がいちばん多い人/.test(res2), "結果の画面に、地方対抗と王様が出る");
+
+  // 8. NWC（Nostr Wallet Connect）で受け取る
+  const nwc = await startFakeNwc(relay.url);
+  const ctx3 = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  await mockBlink(ctx3);
+  await useTestRelay(ctx3);
+  const screen3 = await ctx3.newPage();
+  watch(screen3, "screen3");
+  await screen3.goto(`${base}/index.html`);
+  const admin3 = await ctx3.newPage();
+  watch(admin3, "admin3");
+  await admin3.goto(`${base}/admin.html`);
+  await admin3.fill("#nwc-pay", nwc.payUri);
+  await admin3.fill("#nwc-screen", nwc.screenUri);
+  await admin3.click("#test-nwc");
+  await admin3.waitForFunction(() => /同じウォレット|✗/.test(document.getElementById("blink-log").textContent), null, { timeout: 30000 });
+  const nlog = await admin3.locator("#blink-log").textContent();
+  ok(/インボイスを作れました/.test(nlog) && /一覧を読めました/.test(nlog) && /知らせに対応しています/.test(nlog) && /同じウォレット/.test(nlog) && !/[✗！]/.test(nlog),
+    `NWC の接続テストが通る${/[✗！]/.test(nlog) ? `（${nlog}）` : ""}`);
+  ok(nwc.log.some((l) => l.use44), "ウォレットが NIP-44 に対応していれば、NIP-44 で頼む");
+  await screen3.waitForFunction(() => document.getElementById("status-chip").textContent === "● LIVE", null, { timeout: 10000 });
+  ok(true, "NWC の接続を入れるとスクリーンが LIVE になる");
+  const qr3 = await screen3.locator("#pay-url").textContent();
+  const screenSecret = new URL(nwc.screenUri.replace("nostr+walletconnect://", "http://")).searchParams.get("secret");
+  ok(qr3.includes("#nwc=") && !qr3.includes(screenSecret), "QR には支払いページ用の接続だけが載る（スクリーン用は載らない）");
+
+  const phone3 = await phoneCtx.newPage();
+  watch(phone3, "phone3");
+  await phone3.goto("http://" + qr3);
+  ok(/主催者のウォレット（NWC）/.test(await phone3.locator("#recipient").textContent()), "支払いページが NWC で受け取る形になる");
+  await phone3.click('.pref[data-key="jp_prefecture:JP-01"]');
+  await phone3.click('.amt[data-amt="210"]');
+  await phone3.fill("#nick", "なみ");
+  await phone3.fill("#msg", "NWC から");
+  await phone3.click("#go");
+  await phone3.waitForSelector("#invoice:not([hidden])", { timeout: 15000 });
+  ok((await phone3.locator("#open-wallet").getAttribute("href")).startsWith("lightning:lnbc210n1pnwc"), "NWC のウォレットが作ったインボイスが出る");
+  const nInv = nwc.invoices.length - 1;
+  ok(nwc.invoices[nInv].description.startsWith("⚡SatsMap 🦀北海道 from なみ ##{"), "インボイスの説明に地域と名前が入る");
+  const t0 = Date.now();
+  await nwc.pay(nInv);
+  await screen3.waitForFunction(() => document.getElementById("stat-total-sats").textContent === "210", null, { timeout: 7000 });
+  ok(Date.now() - t0 < 7000, `NWC の「受け取った」の知らせで、すぐスクリーンに出る（${((Date.now() - t0) / 1000).toFixed(1)} 秒）`);
+  await phone3.waitForSelector("#done:not([hidden])", { timeout: 10000 });
+  ok(true, "スマホも「届きました」になる");
+  ok((await screen3.locator("#latest-feed").textContent()).includes("NWC から"), "NWC で届いたひとことが出る");
+  await shot(screen3, "13-nwc");
+
+  // 知らせが届かなくても、一覧を読んで拾う
+  await phone3.click("#again");
+  await phone3.click('.pref[data-key="jp_prefecture:JP-47"]');
+  await phone3.click('.amt[data-amt="21"]');
+  await phone3.click("#go");
+  await phone3.waitForSelector("#invoice:not([hidden])", { timeout: 15000 });
+  await nwc.pay(nwc.invoices.length - 1, { notify: false });
+  await screen3.waitForFunction(() => document.getElementById("stat-total-sats").textContent === "231", null, { timeout: 25000 });
+  ok(true, "知らせが届かなくても、受け取り履歴を読んでスクリーンに出す");
+  await ctx3.close();
+  nwc.close();
 
   ok(errors.length === 0, `画面のエラーなし${errors.length ? `：\n  ${errors.join("\n  ")}` : ""}`);
 } catch (e) {

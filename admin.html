@@ -19,7 +19,32 @@
   </header>
 
   <section class="card">
-    <h2><i class="fa-solid fa-bolt"></i> Blink</h2>
+    <h2><i class="fa-solid fa-bolt"></i> 受け取り</h2>
+    <div class="seg" role="radiogroup">
+      <label class="seg-opt"><input type="radio" name="provider" value="nwc"> NWC（Nostr Wallet Connect）<small>おすすめ</small></label>
+      <label class="seg-opt"><input type="radio" name="provider" value="blink"> Blink</label>
+    </div>
+
+    <div id="box-nwc">
+      <p class="note">
+        NWC に対応したウォレット（Coinos・Alby Hub など）で、<b>接続（アプリの接続）を 2 つ</b>作ります。どちらも「支払う（pay_invoice）」は許さないでください。
+      </p>
+      <label><span>① 支払いページ用 — 許すのは <b>make_invoice・lookup_invoice だけ</b></span>
+        <input id="nwc-pay" type="password" placeholder="nostr+walletconnect://…" autocomplete="off">
+      </label>
+      <p class="note">スクリーンの QR の URL（# のあと）に載り、お客さんのスマホがインボイスを作るのに使います。QR からだれでも読めるので、ほかの権限は付けないでください。</p>
+      <label><span>② スクリーン用 — 許すのは <b>list_transactions・lookup_invoice・notifications</b></span>
+        <input id="nwc-screen" type="password" placeholder="nostr+walletconnect://…" autocomplete="off">
+      </label>
+      <p class="note">受け取った支払いを読むのに使います。このブラウザにだけ置き、サイトのファイル・Nostr には入りません。</p>
+      <div class="row">
+        <button class="btn primary" id="save-nwc"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+        <button class="btn" id="test-nwc"><i class="fa-solid fa-plug"></i> 接続テスト</button>
+        <button class="btn danger ghost" id="forget-nwc"><i class="fa-solid fa-key"></i> 消す</button>
+      </div>
+    </div>
+
+    <div id="box-blink" hidden>
     <label>受け取る Blink のユーザー名
       <input id="username" placeholder="例：satsmap（Lightning アドレスは satsmap@blink.sv）" autocomplete="off">
     </label>
@@ -35,6 +60,7 @@
       <button class="btn primary" id="save-blink"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
       <button class="btn" id="test-blink"><i class="fa-solid fa-plug"></i> 接続テスト</button>
       <button class="btn danger ghost" id="forget-key"><i class="fa-solid fa-key"></i> キーを消す</button>
+    </div>
     </div>
     <pre class="log" id="blink-log" hidden></pre>
     <div class="paylink">
@@ -179,6 +205,7 @@
 <script src="js/store.js"></script>
 <script src="vendor/nostr/nostr.js"></script>
 <script src="js/blink.js"></script>
+<script src="js/nwc.js"></script>
 <script src="js/records.js"></script>
 <script src="js/admin.js"></script>
 </body>

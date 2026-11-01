@@ -58,3 +58,8 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 code#rec-npub { flex: 1; min-width: 0; font-size: 12px; color: var(--text-1); background: var(--bg-2); padding: 8px 10px; border-radius: 8px; word-break: break-all; font-weight: 400; }
 .row.tight { margin-top: 0; align-items: center; }
 .grow { flex: 1; min-width: 200px; }
+.seg { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.seg-opt { flex-direction: row; align-items: center; gap: 8px; margin: 0; padding: 9px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); color: var(--text-0); cursor: pointer; }
+.seg-opt:has(input:checked) { border-color: var(--accent); background: rgba(247,147,26,0.14); }
+.seg-opt small { color: var(--accent-2); font-weight: 700; }
+.seg-opt input { accent-color: var(--accent); }
